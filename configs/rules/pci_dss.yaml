@@ -1,0 +1,117 @@
+# PCI-DSS Compliance Rules
+# Gatekeeper - TAS Gatekeeper Library
+
+version: "1.0"
+name: "pci_dss"
+description: "Payment Card Industry Data Security Standard compliance rules"
+
+framework:
+  id: "PCI_DSS"
+  name: "Payment Card Industry Data Security Standard"
+  description: "Security standard for organizations handling credit card data"
+  reference: "https://www.pcisecuritystandards.org"
+  version: "4.0"
+
+rules:
+  - id: "PCI-3.4"
+    name: "Cardholder Data Protection"
+    description: "Render PAN unreadable anywhere it is stored"
+    severity: "critical"
+    required: true
+    pii_types:
+      - credit_card
+    actions:
+      - "block"
+      - "tokenize"
+      - "alert"
+    remediation:
+      - "Encrypt cardholder data"
+      - "Implement PCI DSS controls"
+      - "Use tokenization for storage"
+
+  - id: "PCI-3.3"
+    name: "PAN Display Masking"
+    description: "Mask PAN when displayed (show only first 6 and last 4)"
+    severity: "high"
+    required: true
+    pii_types:
+      - credit_card
+    mask_format: "XXXXXX******XXXX"  # First 6, last 4
+    actions:
+      - "redact"
+      - "log"
+    remediation:
+      - "Display only first 6 and last 4 digits"
+      - "Implement role-based viewing restrictions"
+
+  - id: "PCI-3.2"
+    name: "Sensitive Authentication Data"
+    description: "Do not store sensitive authentication data after authorization"
+    severity: "critical"
+    required: true
+    sensitive_data:
+      - "full_track_data"
+      - "cvv"
+      - "pin"
+    patterns:
+      cvv: '\b[0-9]{3,4}\b'  # Context-dependent
+      track_data: '%B[0-9]{13,19}\^'
+    actions:
+      - "block"
+      - "alert"
+    remediation:
+      - "Never store CVV/CVC"
+      - "Never store PIN"
+      - "Delete sensitive auth data after authorization"
+
+  - id: "PCI-6.5"
+    name: "Injection Vulnerabilities"
+    description: "Protect against injection attacks"
+    severity: "critical"
+    required: true
+    injection_types:
+      - "sql_injection"
+      - "xss"
+    actions:
+      - "block"
+      - "alert"
+    remediation:
+      - "Implement input validation"
+      - "Use parameterized queries"
+      - "Encode output"
+
+  - id: "PCI-10.2"
+    name: "Audit Trail"
+    description: "Implement automated audit trails for cardholder data access"
+    severity: "high"
+    required: true
+    pii_types:
+      - credit_card
+    actions:
+      - "log"
+      - "audit"
+    remediation:
+      - "Log all access to cardholder data"
+      - "Include user identification"
+      - "Record date and time"
+
+cardholder_data_elements:
+  primary:
+    - name: "Primary Account Number (PAN)"
+      pii_type: "credit_card"
+      protection: "encrypt_or_hash"
+    - name: "Cardholder Name"
+      pii_type: "name"
+      protection: "protect_if_stored_with_pan"
+    - name: "Service Code"
+      protection: "protect_if_stored_with_pan"
+    - name: "Expiration Date"
+      protection: "protect_if_stored_with_pan"
+
+  sensitive_auth:
+    - name: "Full Track Data"
+      protection: "never_store"
+    - name: "CAV2/CVC2/CVV2/CID"
+      protection: "never_store"
+    - name: "PIN/PIN Block"
+      protection: "never_store"

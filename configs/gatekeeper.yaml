@@ -1,0 +1,188 @@
+# Gatekeeper - TAS Gatekeeper Library Configuration
+# This is the main configuration file for the Gatekeeper service
+
+# Service identification
+service:
+  id: "gatekeeper"
+  version: "1.0.0"
+  environment: "development"  # development, staging, production
+
+# Databunker integration for PII tokenization and signing keys
+databunker:
+  url: "${DATABUNKER_URL:-http://tas-databunker-shared:3000}"
+  api_key: "${DATABUNKER_API_KEY}"
+  timeout: 5s
+  retry:
+    max_attempts: 3
+    backoff: 100ms
+
+# Attestation configuration for scan deduplication
+attestation:
+  signing_key_name: "tas-scan-signing-key"  # Key stored in Databunker
+  ttl: 5m                                    # Attestation validity period
+  service_id: "gatekeeper"                   # Service identifier in attestation
+  algorithm: "HMAC-SHA256"
+
+# Scanning configuration
+scanning:
+  default_profile: "full"      # full, compliance, pii_only, injection_only
+  honor_attestations: true     # Skip re-scanning content with valid attestation
+  max_content_size: 10485760   # 10MB max content size
+  timeout: 30s                 # Scan timeout
+
+  # Trust tiers determine scanning depth
+  trust_tiers:
+    internal:
+      scan_profile: "injection_only"
+      skip_pii: true
+    partner:
+      scan_profile: "full"
+      skip_pii: false
+    external:
+      scan_profile: "full"
+      skip_pii: false
+
+  # Pattern matching settings (for future Hyperscan integration)
+  patterns:
+    block_size: 65536
+    scratch_pool_size: 4
+    precompile: true
+
+  # Redaction settings
+  redaction:
+    mode: "tokenize"  # mask, tokenize, replace, remove
+    # PII types to store in Databunker (tokenize)
+    tokenize_types:
+      - email
+      - ssn
+      - credit_card
+      - phone_number
+      - medical_record_number
+      - bank_account
+    # PII types to just mask (not stored)
+    mask_types:
+      - ip_address
+      - date_of_birth
+      - name
+      - address
+
+# Content extraction (reduce scan surface for large content)
+extraction:
+  enabled: true
+  min_content_size: 32768      # Only extract if content > 32KB
+  relevance_threshold: 0.3     # Keep top 30% by similarity
+
+  # Embedding model for relevance scoring
+  embedding:
+    model: "all-MiniLM-L6-v2"
+    dimensions: 384
+    batch_size: 32
+
+  # Small Language Model for intelligent extraction
+  slm:
+    url: "${OLLAMA_URL:-http://tas-ollama-shared:11434}"
+    model: "phi3.5"
+    timeout: 30s
+    max_tokens: 4096
+
+# Kafka streaming for findings
+streaming:
+  enabled: true
+  kafka:
+    brokers:
+      - "${KAFKA_BROKERS:-tas-kafka-shared:9092}"
+    topics:
+      findings: "tas.compliance.findings"
+      critical: "tas.compliance.findings.critical"
+      hipaa: "tas.compliance.findings.hipaa"
+      pci: "tas.compliance.findings.pci"
+      actions: "tas.compliance.actions"
+      audit: "tas.compliance.audit"
+    producer:
+      batch_size: 100
+      flush_interval: 1s
+      compression: "snappy"
+      required_acks: "all"
+    consumer:
+      group_id: "gatekeeper-consumers"
+      auto_offset_reset: "earliest"
+
+# Action engine for automated responses
+actions:
+  enabled: true
+  rules_file: "/configs/rules/action_rules.yaml"
+
+  # Rate limiting for actions
+  rate_limit:
+    enabled: true
+    window: 1m
+    max_actions: 1000
+
+  # Alerting integrations
+  alerting:
+    slack:
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+      channel: "#security-alerts"
+      enabled: false
+    pagerduty:
+      routing_key: "${PAGERDUTY_KEY}"
+      enabled: false
+    webhook:
+      url: "${ALERT_WEBHOOK_URL}"
+      enabled: false
+
+# Redis cache for attestations and rate limiting
+cache:
+  redis:
+    addr: "${REDIS_URL:-tas-redis-shared:6379}"
+    password: "${REDIS_PASSWORD}"
+    db: 0
+    pool_size: 10
+    min_idle_conns: 5
+    dial_timeout: 5s
+    read_timeout: 3s
+    write_timeout: 3s
+  attestation_ttl: 5m
+  rate_limit_ttl: 1m
+
+# HTTP server configuration (standalone service mode)
+server:
+  http:
+    port: 8087
+    read_timeout: 30s
+    write_timeout: 30s
+    idle_timeout: 120s
+  grpc:
+    port: 8088
+    max_recv_msg_size: 16777216  # 16MB
+    max_send_msg_size: 16777216
+  metrics:
+    port: 9087
+    path: "/metrics"
+
+# Logging configuration
+logging:
+  level: "${LOG_LEVEL:-info}"  # debug, info, warn, error
+  format: "json"               # json, text
+  output: "stdout"             # stdout, file
+  file:
+    path: "/var/log/gatekeeper/gatekeeper.log"
+    max_size: 100              # MB
+    max_backups: 3
+    max_age: 28                # days
+
+# Health check endpoints
+health:
+  live_path: "/health/live"
+  ready_path: "/health/ready"
+  check_interval: 10s
+
+# Compliance frameworks to load
+compliance:
+  frameworks:
+    - gdpr
+    - hipaa
+    - pci_dss
+    - sox
+    - ccpa
+  rules_dir: "/configs/rules"

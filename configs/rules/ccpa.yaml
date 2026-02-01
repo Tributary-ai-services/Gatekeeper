@@ -1,0 +1,98 @@
+# CCPA Compliance Rules
+# Gatekeeper - TAS Gatekeeper Library
+
+version: "1.0"
+name: "ccpa"
+description: "California Consumer Privacy Act compliance rules"
+
+framework:
+  id: "CCPA"
+  name: "California Consumer Privacy Act"
+  description: "California state law protecting consumer privacy rights"
+  reference: "https://oag.ca.gov/privacy/ccpa"
+
+rules:
+  - id: "CCPA-001"
+    name: "Personal Information Detection"
+    description: "Detection of personal information as defined by CCPA"
+    severity: "high"
+    required: true
+    pii_types:
+      - email
+      - name
+      - address
+      - ssn
+      - ip_address
+      - phone_number
+    conditions:
+      # CCPA applies to California residents
+      context_hints:
+        - "California"
+        - "CA"
+        - "CCPA"
+    actions:
+      - "alert"
+      - "log"
+    remediation:
+      - "Enable consumer rights mechanisms"
+      - "Implement data deletion capabilities"
+      - "Provide notice at collection"
+
+  - id: "CCPA-002"
+    name: "Sale of Personal Information"
+    description: "Track potential sale or sharing of personal information"
+    severity: "high"
+    required: true
+    pii_types:
+      - email
+      - name
+      - ip_address
+      - phone_number
+    actions:
+      - "log"
+      - "audit"
+    remediation:
+      - "Honor opt-out requests"
+      - "Maintain Do Not Sell list"
+      - "Verify third-party data handling"
+
+  - id: "CCPA-003"
+    name: "Sensitive Personal Information"
+    description: "Enhanced protection for sensitive personal information"
+    severity: "critical"
+    required: true
+    pii_types:
+      - ssn
+      - drivers_license
+      - passport
+      - credit_card
+      - bank_account
+    sensitive_categories:
+      - "racial_ethnic_origin"
+      - "religious_beliefs"
+      - "genetic_data"
+      - "biometric_data"
+      - "health_data"
+      - "sex_life_orientation"
+      - "precise_geolocation"
+    actions:
+      - "block"
+      - "alert"
+    remediation:
+      - "Limit use to disclosed purposes"
+      - "Honor limit-use requests"
+      - "Provide opt-out mechanism"
+
+consumer_rights:
+  - name: "Right to Know"
+    description: "Right to know what personal information is collected"
+  - name: "Right to Delete"
+    description: "Right to request deletion of personal information"
+  - name: "Right to Opt-Out"
+    description: "Right to opt-out of sale of personal information"
+  - name: "Right to Non-Discrimination"
+    description: "Right to non-discriminatory treatment"
+  - name: "Right to Correct"
+    description: "Right to correct inaccurate personal information"
+  - name: "Right to Limit Use"
+    description: "Right to limit use of sensitive personal information"

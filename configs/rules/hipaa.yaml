@@ -1,0 +1,141 @@
+# HIPAA Compliance Rules
+# Gatekeeper - TAS Gatekeeper Library
+
+version: "1.0"
+name: "hipaa"
+description: "Health Insurance Portability and Accountability Act compliance rules"
+
+framework:
+  id: "HIPAA"
+  name: "Health Insurance Portability and Accountability Act"
+  description: "US federal law protecting sensitive patient health information"
+  reference: "https://www.hhs.gov/hipaa"
+
+rules:
+  - id: "HIPAA-164.514"
+    name: "Protected Health Information"
+    description: "Detection of PHI identifiers as defined in HIPAA Safe Harbor"
+    severity: "critical"
+    required: true
+    pii_types:
+      - ssn
+      - date_of_birth
+      - name
+      - email
+      - phone_number
+      - address
+      - medical_record_number
+    conditions:
+      # PHI is only relevant in healthcare context
+      context_hints:
+        - "patient"
+        - "medical"
+        - "health"
+        - "hospital"
+        - "clinic"
+        - "diagnosis"
+        - "treatment"
+        - "prescription"
+    actions:
+      - "block"
+      - "alert"
+      - "log"
+    remediation:
+      - "Apply HIPAA safeguards"
+      - "Implement access controls"
+      - "Encrypt data at rest and in transit"
+
+  - id: "HIPAA-164.502"
+    name: "Minimum Necessary Standard"
+    description: "Limit PHI disclosure to minimum necessary"
+    severity: "high"
+    required: true
+    pii_types:
+      - ssn
+      - medical_record_number
+    actions:
+      - "redact"
+      - "log"
+    remediation:
+      - "Redact unnecessary PHI"
+      - "Implement role-based access"
+
+  - id: "HIPAA-164.312"
+    name: "Technical Safeguards"
+    description: "Technical controls for ePHI"
+    severity: "high"
+    required: true
+    pii_types:
+      - ssn
+      - date_of_birth
+      - medical_record_number
+    actions:
+      - "encrypt"
+      - "tokenize"
+      - "log"
+    remediation:
+      - "Implement encryption"
+      - "Use unique user identification"
+      - "Enable audit controls"
+
+# 18 HIPAA Safe Harbor Identifiers
+safe_harbor_identifiers:
+  - name: "Names"
+    description: "Full name or last name with initials"
+    pii_type: "name"
+
+  - name: "Geographic Data"
+    description: "All geographic subdivisions smaller than state"
+    pii_type: "address"
+
+  - name: "Dates"
+    description: "All dates directly related to an individual"
+    pii_type: "date_of_birth"
+
+  - name: "Phone Numbers"
+    pii_type: "phone_number"
+
+  - name: "Fax Numbers"
+    pii_type: "phone_number"
+
+  - name: "Email Addresses"
+    pii_type: "email"
+
+  - name: "Social Security Numbers"
+    pii_type: "ssn"
+
+  - name: "Medical Record Numbers"
+    pii_type: "medical_record_number"
+
+  - name: "Health Plan Beneficiary Numbers"
+    pii_type: "custom"
+    pattern: '\b[A-Z]{3}[0-9]{9}\b'
+
+  - name: "Account Numbers"
+    pii_type: "bank_account"
+
+  - name: "Certificate/License Numbers"
+    pii_type: "drivers_license"
+
+  - name: "Vehicle Identifiers"
+    pii_type: "custom"
+    pattern: '\b[A-Z0-9]{17}\b'  # VIN
+
+  - name: "Device Identifiers"
+    pii_type: "custom"
+
+  - name: "Web URLs"
+    pii_type: "custom"
+    pattern: 'https?://[^\s]+'
+
+  - name: "IP Addresses"
+    pii_type: "ip_address"
+
+  - name: "Biometric Identifiers"
+    pii_type: "custom"
+
+  - name: "Full-face Photos"
+    pii_type: "custom"
+
+  - name: "Other Unique Identifiers"
+    pii_type: "custom"

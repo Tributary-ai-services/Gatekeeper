@@ -1,0 +1,127 @@
+# GDPR Compliance Rules
+# Gatekeeper - TAS Gatekeeper Library
+
+version: "1.0"
+name: "gdpr"
+description: "General Data Protection Regulation compliance rules"
+
+framework:
+  id: "GDPR"
+  name: "General Data Protection Regulation"
+  description: "EU regulation on data protection and privacy"
+  reference: "https://gdpr.eu"
+
+rules:
+  - id: "GDPR-6.1"
+    name: "Personal Data Detection"
+    description: "Detection of personal data requiring lawful basis for processing"
+    severity: "high"
+    required: true
+    pii_types:
+      - email
+      - name
+      - address
+      - phone_number
+      - ip_address
+    conditions:
+      # GDPR applies to EU data subjects
+      context_hints:
+        - "EU"
+        - "European"
+        - "GDPR"
+    actions:
+      - "alert"
+      - "log"
+    remediation:
+      - "Implement data protection measures"
+      - "Document legal basis for processing"
+      - "Ensure data subject consent where required"
+
+  - id: "GDPR-9"
+    name: "Special Category Data"
+    description: "Detection of special category personal data requiring explicit consent"
+    severity: "critical"
+    required: true
+    pii_types:
+      - date_of_birth
+      - ssn  # National identification numbers
+    special_categories:
+      - "racial_ethnic_origin"
+      - "political_opinions"
+      - "religious_beliefs"
+      - "trade_union_membership"
+      - "genetic_data"
+      - "biometric_data"
+      - "health_data"
+      - "sex_life_orientation"
+    actions:
+      - "block"
+      - "alert"
+    remediation:
+      - "Obtain explicit consent"
+      - "Implement enhanced protection measures"
+      - "Document legal basis under Article 9(2)"
+
+  - id: "GDPR-17"
+    name: "Right to Erasure"
+    description: "Support for data subject right to deletion"
+    severity: "medium"
+    required: true
+    pii_types:
+      - email
+      - name
+      - phone_number
+      - address
+    actions:
+      - "log"
+    remediation:
+      - "Enable data deletion capabilities"
+      - "Implement data retention policies"
+
+  - id: "GDPR-25"
+    name: "Data Protection by Design"
+    description: "Privacy by design and default requirements"
+    severity: "high"
+    required: true
+    pii_types:
+      - email
+      - name
+      - ssn
+      - credit_card
+    actions:
+      - "redact"
+      - "tokenize"
+      - "log"
+    remediation:
+      - "Implement pseudonymization"
+      - "Apply data minimization"
+      - "Enable encryption"
+
+  - id: "GDPR-33"
+    name: "Data Breach Notification"
+    description: "Breach detection and notification requirements"
+    severity: "critical"
+    required: true
+    pii_types:
+      - ssn
+      - credit_card
+      - bank_account
+      - passport
+    conditions:
+      # Trigger on high-risk data exposure
+      risk_threshold: 0.8
+    actions:
+      - "alert"
+      - "create_incident"
+    remediation:
+      - "Notify supervisory authority within 72 hours"
+      - "Document breach details"
+      - "Notify affected data subjects if high risk"
+
+data_subject_rights:
+  - "right_of_access"
+  - "right_to_rectification"
+  - "right_to_erasure"
+  - "right_to_restrict_processing"
+  - "right_to_data_portability"
+  - "right_to_object"

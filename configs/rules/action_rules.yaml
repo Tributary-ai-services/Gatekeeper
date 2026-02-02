@@ -1,0 +1,270 @@
+# Action Rules Configuration
+# Gatekeeper - TAS Gatekeeper Library
+
+version: "1.0"
+name: "action_rules"
+description: "Rules for automated responses to detected violations"
+
+# Default action rules
+rules:
+  # Critical severity - immediate block
+  - id: "critical-block"
+    name: "Critical Severity Block"
+    description: "Block content with critical severity violations"
+    enabled: true
+    priority: 1
+    conditions:
+      - field: "severity"
+        operator: "eq"
+        value: "critical"
+    actions:
+      - type: "block"
+      - type: "alert"
+        config:
+          channels: ["pagerduty", "slack"]
+          urgency: "high"
+      - type: "create_incident"
+        config:
+          severity: "P1"
+      - type: "log"
+        config:
+          level: "error"
+    cooldown: 0s  # No cooldown for critical
+
+  # PCI cardholder data
+  - id: "pci-redact"
+    name: "PCI Cardholder Data Redaction"
+    description: "Tokenize credit card data"
+    enabled: true
+    priority: 2
+    conditions:
+      - field: "pattern_id"
+        operator: "eq"
+        value: "credit_card"
+    actions:
+      - type: "tokenize"
+      - type: "log"
+        config:
+          level: "warn"
+          include_audit: true
+    cooldown: 0s
+
+  # HIPAA PHI blocking
+  - id: "hipaa-phi-block"
+    name: "HIPAA PHI High Risk Block"
+    description: "Block high-risk HIPAA violations"
+    enabled: true
+    priority: 3
+    conditions:
+      - field: "frameworks"
+        operator: "contains"
+        value: "HIPAA"
+      - field: "severity"
+        operator: "in"
+        values: ["critical", "high"]
+    actions:
+      - type: "block"
+      - type: "alert"
+        config:
+          channels: ["slack"]
+          template: "hipaa_violation"
+      - type: "webhook"
+        config:
+          url: "${HIPAA_WEBHOOK_URL}"
+          method: "POST"
+    cooldown: 1m
+
+  # SQL injection block
+  - id: "sqli-block"
+    name: "SQL Injection Block"
+    description: "Block SQL injection attempts"
+    enabled: true
+    priority: 1
+    conditions:
+      - field: "pattern_type"
+        operator: "eq"
+        value: "sql_injection"
+      - field: "severity"
+        operator: "in"
+        values: ["critical", "high"]
+    actions:
+      - type: "block"
+      - type: "alert"
+        config:
+          channels: ["slack"]
+          template: "security_alert"
+      - type: "log"
+        config:
+          level: "error"
+    cooldown: 0s
+
+  # Prompt injection block
+  - id: "prompt-injection-block"
+    name: "Prompt Injection Block"
+    description: "Block prompt injection attempts"
+    enabled: true
+    priority: 1
+    conditions:
+      - field: "pattern_type"
+        operator: "eq"
+        value: "prompt_injection"
+      - field: "severity"
+        operator: "in"
+        values: ["critical", "high"]
+    actions:
+      - type: "block"
+      - type: "alert"
+        config:
+          channels: ["slack"]
+          template: "prompt_injection_alert"
+      - type: "log"
+        config:
+          level: "warn"
+    cooldown: 0s
+
+  # MCP server anomaly detection
+  - id: "mcp-anomaly"
+    name: "MCP Server Anomaly"
+    description: "Block MCP servers with anomalous behavior"
+    enabled: true
+    priority: 2
+    conditions:
+      - field: "source"
+        operator: "eq"
+        value: "mcp_response"
+      - field: "rate"
+        operator: "gt"
+        value: 50
+        window: "1m"
+    actions:
+      - type: "block_mcp_server"
+        config:
+          duration: "5m"
+      - type: "alert"
+        config:
+          channels: ["slack"]
+          template: "mcp_anomaly"
+    cooldown: 5m
+
+  # High severity alert only
+  - id: "high-severity-alert"
+    name: "High Severity Alert"
+    description: "Alert on high severity without blocking"
+    enabled: true
+    priority: 10
+    conditions:
+      - field: "severity"
+        operator: "eq"
+        value: "high"
+    actions:
+      - type: "alert"
+        config:
+          channels: ["slack"]
+      - type: "log"
+        config:
+          level: "warn"
+    cooldown: 5m
+
+  # Credential leak detection
+  - id: "credential-leak"
+    name: "Credential Leak Detection"
+    description: "Block and alert on credential leaks"
+    enabled: true
+    priority: 1
+    conditions:
+      - field: "pattern_type"
+        operator: "eq"
+        value: "credential"
+    actions:
+      - type: "block"
+      - type: "alert"
+        config:
+          channels: ["pagerduty", "slack"]
+          urgency: "high"
+      - type: "create_incident"
+        config:
+          severity: "P2"
+    cooldown: 0s
+
+# Action type definitions
+action_types:
+  block:
+    description: "Block the request/content from proceeding"
+    response_code: 403
+
+  redact:
+    description: "Redact sensitive content with masks"
+    strategies: ["mask", "replace", "remove"]
+
+  tokenize:
+    description: "Replace sensitive content with Databunker tokens"
+    reversible: true
+
+  alert:
+    description: "Send alert to configured channels"
+    channels: ["slack", "pagerduty", "webhook"]
+
+  log:
+    description: "Log the finding"
+    levels: ["debug", "info", "warn", "error"]
+
+  create_incident:
+    description: "Create incident ticket"
+    severities: ["P1", "P2", "P3", "P4"]
+
+  webhook:
+    description: "Send webhook to external system"
+    methods: ["POST", "PUT"]
+
+  quarantine:
+    description: "Move content to quarantine storage"
+
+  block_mcp_server:
+    description: "Temporarily block an MCP server"
+
+# Rate limiting for actions
+rate_limits:
+  global:
+    max_actions_per_minute: 1000
+    max_alerts_per_minute: 100
+    max_blocks_per_minute: 500
+
+  per_tenant:
+    max_actions_per_minute: 100
+    max_alerts_per_minute: 10
+
+# Alert templates
+alert_templates:
+  security_alert:
+    title: "Security Alert: {{.PatternType}}"
+    body: |
+      **Severity**: {{.Severity}}
+      **Pattern**: {{.PatternID}}
+      **Source**: {{.Source}}
+      **Tenant**: {{.TenantID}}
+      **Request ID**: {{.RequestID}}
+      **Action Taken**: {{.ActionTaken}}
+
+  hipaa_violation:
+    title: "HIPAA Violation Detected"
+    body: |
+      **PHI Type**: {{.PIIType}}
+      **Rule**: {{.RuleID}}
+      **Tenant**: {{.TenantID}}
+      **Request ID**: {{.RequestID}}
+      **Immediate action required**
+
+  prompt_injection_alert:
+    title: "Prompt Injection Attempt"
+    body: |
+      **Pattern**: {{.PatternID}}
+      **User**: {{.UserID}}
+      **Source**: {{.Source}}
+      **Request blocked**
+
+  mcp_anomaly:
+    title: "MCP Server Anomaly Detected"
+    body: |
+      **Server**: {{.MCPServerID}}
+      **Rate**: {{.Rate}} findings/min
+      **Action**: Server blocked for 5 minutes

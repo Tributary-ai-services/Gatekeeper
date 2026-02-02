@@ -1,0 +1,78 @@
+# SOX Compliance Rules
+# Gatekeeper - TAS Gatekeeper Library
+
+version: "1.0"
+name: "sox"
+description: "Sarbanes-Oxley Act compliance rules"
+
+framework:
+  id: "SOX"
+  name: "Sarbanes-Oxley Act"
+  description: "US federal law for financial reporting and corporate governance"
+  reference: "https://www.sec.gov/spotlight/sarbanes-oxley.htm"
+
+rules:
+  - id: "SOX-302"
+    name: "Financial Data Protection"
+    description: "Protection of financial records and personal data"
+    severity: "high"
+    required: true
+    pii_types:
+      - ssn
+      - bank_account
+      - credit_card
+    context_hints:
+      - "financial"
+      - "accounting"
+      - "audit"
+      - "revenue"
+      - "earnings"
+    actions:
+      - "alert"
+      - "log"
+    remediation:
+      - "Implement internal controls"
+      - "Document data handling procedures"
+      - "Ensure executive certification"
+
+  - id: "SOX-404"
+    name: "Internal Control Assessment"
+    description: "Protection against unauthorized access and injection attacks"
+    severity: "high"
+    required: true
+    injection_types:
+      - "sql_injection"
+    pii_types:
+      - ssn
+      - bank_account
+    actions:
+      - "block"
+      - "alert"
+      - "log"
+    remediation:
+      - "Implement access controls"
+      - "Monitor for unauthorized access"
+      - "Maintain audit trail"
+
+  - id: "SOX-802"
+    name: "Document Retention"
+    description: "Requirements for record retention and integrity"
+    severity: "high"
+    required: true
+    pii_types:
+      - ssn
+      - bank_account
+      - credit_card
+    actions:
+      - "log"
+      - "audit"
+    remediation:
+      - "Maintain records for required period"
+      - "Implement document integrity controls"
+      - "Prevent unauthorized modification"
+
+audit_requirements:
+  - "Document all access to financial data"
+  - "Maintain audit logs for 7 years"
+  - "Track all modifications to financial records"
+  - "Implement separation of duties"

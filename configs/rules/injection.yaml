@@ -1,0 +1,385 @@
+# Injection Detection Patterns
+# Gatekeeper - TAS Gatekeeper Library
+
+version: "1.0"
+name: "injection"
+description: "SQL injection, XSS, and prompt injection detection patterns"
+
+patterns:
+  # ===================
+  # SQL Injection
+  # ===================
+
+  # Critical SQL Injection
+  - id: "sql_union_select"
+    name: "UNION SELECT"
+    type: "sql_injection"
+    severity: "critical"
+    description: "UNION-based SQL injection attempt"
+    regex: '(?i)\bUNION\s+(ALL\s+)?SELECT\b'
+    action: "block"
+    frameworks:
+      - SECURITY
+      - SOX
+
+  - id: "sql_drop"
+    name: "DROP Statement"
+    type: "sql_injection"
+    severity: "critical"
+    description: "SQL DROP statement (table, database, index)"
+    regex: '(?i)\bDROP\s+(TABLE|DATABASE|INDEX)\b'
+    action: "block"
+
+  - id: "sql_truncate"
+    name: "TRUNCATE TABLE"
+    type: "sql_injection"
+    severity: "critical"
+    description: "SQL TRUNCATE statement"
+    regex: '(?i)\bTRUNCATE\s+TABLE\b'
+    action: "block"
+
+  - id: "sql_xp_cmdshell"
+    name: "xp_cmdshell"
+    type: "sql_injection"
+    severity: "critical"
+    description: "SQL Server command execution"
+    regex: '(?i)\bxp_cmdshell\b'
+    action: "block"
+
+  # High SQL Injection
+  - id: "sql_delete"
+    name: "DELETE FROM"
+    type: "sql_injection"
+    severity: "high"
+    description: "SQL DELETE statement"
+    regex: '(?i)\bDELETE\s+FROM\b'
+    action: "block"
+
+  - id: "sql_insert"
+    name: "INSERT INTO"
+    type: "sql_injection"
+    severity: "high"
+    description: "SQL INSERT statement"
+    regex: '(?i)\bINSERT\s+INTO\b'
+    action: "block"
+
+  - id: "sql_update"
+    name: "UPDATE SET"
+    type: "sql_injection"
+    severity: "high"
+    description: "SQL UPDATE statement"
+    regex: '(?i)\bUPDATE\s+\w+\s+SET\b'
+    action: "block"
+
+  - id: "sql_select"
+    name: "SELECT FROM"
+    type: "sql_injection"
+    severity: "high"
+    description: "SQL SELECT statement"
+    regex: '(?i)\bSELECT\s+.+\s+FROM\b'
+    action: "sanitize"
+
+  - id: "sql_exec"
+    name: "EXEC Function"
+    type: "sql_injection"
+    severity: "high"
+    description: "SQL EXEC/EXECUTE function call"
+    regex: '(?i)\bEXEC(UTE)?\s*\('
+    action: "block"
+
+  # Medium SQL Injection
+  - id: "sql_or_equals"
+    name: "OR 1=1 Pattern"
+    type: "sql_injection"
+    severity: "medium"
+    description: "Classic tautology injection"
+    regex: '(?i)\bOR\s+[''"]?\d+[''"]?\s*=\s*[''"]?\d+[''"]?'
+    action: "sanitize"
+
+  - id: "sql_and_equals"
+    name: "AND 1=1 Pattern"
+    type: "sql_injection"
+    severity: "medium"
+    description: "Tautology injection with AND"
+    regex: '(?i)\bAND\s+[''"]?\d+[''"]?\s*=\s*[''"]?\d+[''"]?'
+    action: "sanitize"
+
+  - id: "sql_having"
+    name: "HAVING Clause"
+    type: "sql_injection"
+    severity: "medium"
+    description: "SQL HAVING clause"
+    regex: '(?i)\bHAVING\b'
+    action: "sanitize"
+
+  - id: "sql_comment"
+    name: "SQL Comment Injection"
+    type: "sql_injection"
+    severity: "medium"
+    description: "SQL comment injection"
+    regex: '(?i);\s*--'
+    action: "sanitize"
+
+  - id: "sql_block_comment"
+    name: "SQL Block Comment"
+    type: "sql_injection"
+    severity: "medium"
+    description: "SQL block comment"
+    regex: '/\*.*\*/'
+    action: "sanitize"
+
+  # Low SQL Injection
+  - id: "sql_group_by"
+    name: "GROUP BY Clause"
+    type: "sql_injection"
+    severity: "low"
+    description: "SQL GROUP BY clause"
+    regex: '(?i)\bGROUP\s+BY\b'
+    action: "log"
+
+  - id: "sql_order_by"
+    name: "ORDER BY Clause"
+    type: "sql_injection"
+    severity: "low"
+    description: "SQL ORDER BY clause"
+    regex: '(?i)\bORDER\s+BY\b'
+    action: "log"
+
+  # ===================
+  # XSS (Cross-Site Scripting)
+  # ===================
+
+  # Critical XSS
+  - id: "xss_script_tag"
+    name: "Script Tag"
+    type: "xss"
+    severity: "critical"
+    description: "HTML script tag injection"
+    regex: '(?i)<script[^>]*>'
+    action: "block"
+
+  - id: "xss_script_close"
+    name: "Script Close Tag"
+    type: "xss"
+    severity: "critical"
+    description: "HTML script close tag"
+    regex: '(?i)</script>'
+    action: "block"
+
+  - id: "xss_javascript_protocol"
+    name: "JavaScript Protocol"
+    type: "xss"
+    severity: "critical"
+    description: "JavaScript protocol handler"
+    regex: '(?i)javascript:'
+    action: "block"
+
+  - id: "xss_vbscript_protocol"
+    name: "VBScript Protocol"
+    type: "xss"
+    severity: "critical"
+    description: "VBScript protocol handler"
+    regex: '(?i)vbscript:'
+    action: "block"
+
+  - id: "xss_data_html"
+    name: "Data HTML Protocol"
+    type: "xss"
+    severity: "critical"
+    description: "Data URI with HTML content"
+    regex: '(?i)data:\s*text/html'
+    action: "block"
+
+  # High XSS
+  - id: "xss_event_handler"
+    name: "Event Handler"
+    type: "xss"
+    severity: "high"
+    description: "HTML event handler attribute"
+    regex: '(?i)\bon\w+\s*='
+    action: "block"
+
+  - id: "xss_onerror"
+    name: "OnError Handler"
+    type: "xss"
+    severity: "high"
+    description: "OnError event handler"
+    regex: '(?i)onerror\s*='
+    action: "block"
+
+  - id: "xss_onload"
+    name: "OnLoad Handler"
+    type: "xss"
+    severity: "high"
+    description: "OnLoad event handler"
+    regex: '(?i)onload\s*='
+    action: "block"
+
+  - id: "xss_iframe"
+    name: "IFrame Tag"
+    type: "xss"
+    severity: "high"
+    description: "IFrame injection"
+    regex: '(?i)<iframe[^>]*>'
+    action: "block"
+
+  - id: "xss_object"
+    name: "Object Tag"
+    type: "xss"
+    severity: "high"
+    description: "Object tag injection"
+    regex: '(?i)<object[^>]*>'
+    action: "block"
+
+  - id: "xss_embed"
+    name: "Embed Tag"
+    type: "xss"
+    severity: "high"
+    description: "Embed tag injection"
+    regex: '(?i)<embed[^>]*>'
+    action: "block"
+
+  - id: "xss_css_javascript"
+    name: "CSS JavaScript URL"
+    type: "xss"
+    severity: "high"
+    description: "JavaScript in CSS URL"
+    regex: '(?i)url\s*\(\s*[''"]?javascript:'
+    action: "block"
+
+  # Medium XSS
+  - id: "xss_form"
+    name: "Form Tag"
+    type: "xss"
+    severity: "medium"
+    description: "Form tag injection"
+    regex: '(?i)<form[^>]*>'
+    action: "sanitize"
+
+  - id: "xss_input"
+    name: "Input Tag"
+    type: "xss"
+    severity: "medium"
+    description: "Input tag injection"
+    regex: '(?i)<input[^>]*>'
+    action: "sanitize"
+
+  - id: "xss_css_expression"
+    name: "CSS Expression"
+    type: "xss"
+    severity: "medium"
+    description: "CSS expression (IE)"
+    regex: '(?i)expression\s*\('
+    action: "sanitize"
+
+  # ===================
+  # HTML Injection
+  # ===================
+
+  - id: "html_link"
+    name: "Link Tag"
+    type: "html_injection"
+    severity: "medium"
+    description: "HTML link tag"
+    regex: '(?i)<link[^>]*>'
+    action: "sanitize"
+
+  - id: "html_img"
+    name: "Image Tag"
+    type: "html_injection"
+    severity: "medium"
+    description: "HTML image tag"
+    regex: '(?i)<img[^>]*>'
+    action: "sanitize"
+
+  - id: "html_anchor"
+    name: "Anchor Tag"
+    type: "html_injection"
+    severity: "medium"
+    description: "HTML anchor tag"
+    regex: '(?i)<a\s[^>]*>'
+    action: "sanitize"
+
+  - id: "html_generic"
+    name: "Generic HTML Tag"
+    type: "html_injection"
+    severity: "low"
+    description: "Generic HTML tag"
+    regex: '<[^>]+>'
+    action: "log"
+
+  # ===================
+  # Prompt Injection (LLM-specific)
+  # ===================
+
+  - id: "prompt_ignore_instructions"
+    name: "Ignore Instructions"
+    type: "prompt_injection"
+    severity: "high"
+    description: "Attempt to override system instructions"
+    patterns:
+      - '(?i)ignore\s+(all\s+)?(previous|prior|above)\s+instructions?'
+      - '(?i)disregard\s+(all\s+)?(previous|prior|above)\s+instructions?'
+      - '(?i)forget\s+(all\s+)?(previous|prior|above)\s+instructions?'
+    action: "block"
+    frameworks:
+      - SECURITY
+
+  - id: "prompt_new_instructions"
+    name: "New Instructions"
+    type: "prompt_injection"
+    severity: "high"
+    description: "Attempt to inject new instructions"
+    patterns:
+      - '(?i)your\s+new\s+instructions?\s+are'
+      - '(?i)from\s+now\s+on\s+you\s+(will|are|must)'
+      - '(?i)you\s+are\s+now\s+a'
+    action: "block"
+
+  - id: "prompt_roleplay"
+    name: "Roleplay Injection"
+    type: "prompt_injection"
+    severity: "medium"
+    description: "Attempt to change AI role/persona"
+    patterns:
+      - '(?i)pretend\s+(you\s+are|to\s+be)\s+a'
+      - '(?i)act\s+as\s+(if\s+you\s+are\s+)?a'
+      - '(?i)you\s+are\s+DAN'
+      - '(?i)jailbreak'
+    action: "sanitize"
+
+  - id: "prompt_system_prompt"
+    name: "System Prompt Extraction"
+    type: "prompt_injection"
+    severity: "high"
+    description: "Attempt to extract system prompt"
+    patterns:
+      - '(?i)what\s+(is|are)\s+your\s+(system\s+)?instructions?'
+      - '(?i)show\s+me\s+your\s+(system\s+)?prompt'
+      - '(?i)repeat\s+(your\s+)?(system\s+)?instructions?'
+      - '(?i)print\s+(your\s+)?(initial|system)\s+prompt'
+    action: "block"
+
+  - id: "prompt_delimiter_escape"
+    name: "Delimiter Escape"
+    type: "prompt_injection"
+    severity: "high"
+    description: "Attempt to escape prompt delimiters"
+    patterns:
+      - '```\s*system'
+      - '\[SYSTEM\]'
+      - '<\|im_start\|>'
+      - '### Instruction'
+    action: "block"
+
+  # ===================
+  # Control Characters
+  # ===================
+
+  - id: "control_chars"
+    name: "Control Characters"
+    type: "control_chars"
+    severity: "low"
+    description: "Non-printable control characters"
+    regex: '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]'
+    action: "sanitize"

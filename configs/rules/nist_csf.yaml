@@ -1,0 +1,122 @@
+# NIST Cybersecurity Framework (CSF) Compliance Rules
+# Gatekeeper - TAS Gatekeeper Library
+
+version: "1.0"
+name: "nist_csf"
+description: "NIST Cybersecurity Framework compliance rules"
+
+framework:
+  id: "NIST_CSF"
+  name: "NIST Cybersecurity Framework"
+  description: "Framework for improving critical infrastructure cybersecurity"
+  reference: "https://www.nist.gov/cyberframework"
+  version: "2.0"
+
+rules:
+  - id: "NIST-CSF-PR.DS-1"
+    name: "Data-at-Rest Protection"
+    description: "Data-at-rest is protected per PR.DS-1"
+    severity: "critical"
+    required: true
+    pii_types:
+      - aws_access_key
+      - aws_secret_key
+      - api_key
+      - azure_key
+      - gcp_key
+      - jwt_token
+      - oauth_token
+      - private_key
+      - connection_string
+    actions:
+      - "block"
+      - "alert"
+      - "log"
+    remediation:
+      - "Encrypt all credentials at rest"
+      - "Implement key management systems"
+      - "Rotate exposed credentials immediately"
+
+  - id: "NIST-CSF-PR.DS-2"
+    name: "Data-in-Transit Protection"
+    description: "Data-in-transit is protected per PR.DS-2"
+    severity: "high"
+    required: true
+    pii_types:
+      - aws_access_key
+      - aws_secret_key
+      - api_key
+      - azure_key
+      - gcp_key
+      - private_key
+      - connection_string
+    actions:
+      - "alert"
+      - "log"
+    remediation:
+      - "Use TLS for all data in transit"
+      - "Never transmit credentials in plaintext"
+
+  - id: "NIST-CSF-PR.AC-1"
+    name: "Identity and Access Control"
+    description: "Identities and credentials are issued, managed, verified, revoked, and audited per PR.AC-1"
+    severity: "medium"
+    required: false
+    pii_types:
+      - email
+      - name
+    conditions:
+      context_hints:
+        - "government"
+        - "federal"
+        - "critical infrastructure"
+    actions:
+      - "alert"
+      - "log"
+    remediation:
+      - "Implement identity management"
+      - "Audit credential usage"
+
+  - id: "NIST-CSF-ID.AM-5"
+    name: "Data Classification"
+    description: "Resources are prioritized based on classification, criticality, and business value per ID.AM-5"
+    severity: "high"
+    required: true
+    pii_types:
+      - ssn
+      - credit_card
+    actions:
+      - "alert"
+      - "log"
+    remediation:
+      - "Classify data according to sensitivity"
+      - "Apply appropriate protection controls"
+
+  - id: "NIST-CSF-DE.CM-1"
+    name: "Network Monitoring"
+    description: "The network is monitored to detect potential cybersecurity events per DE.CM-1"
+    severity: "high"
+    required: true
+    injection_types:
+      - "sql_injection"
+      - "xss"
+      - "prompt_injection"
+      - "html_injection"
+    actions:
+      - "block"
+      - "alert"
+      - "log"
+    remediation:
+      - "Implement intrusion detection systems"
+      - "Monitor for injection attacks"
+      - "Block malicious requests"
+
+csf_functions:
+  identify:
+    - "ID.AM-5: Data classification"
+  protect:
+    - "PR.AC-1: Identity and access control"
+    - "PR.DS-1: Data-at-rest protection"
+    - "PR.DS-2: Data-in-transit protection"
+  detect:
+    - "DE.CM-1: Network monitoring"

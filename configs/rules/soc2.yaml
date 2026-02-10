@@ -1,0 +1,134 @@
+# SOC 2 Trust Service Criteria Compliance Rules
+# Gatekeeper - TAS Gatekeeper Library
+
+version: "1.0"
+name: "soc2"
+description: "SOC 2 Trust Service Criteria compliance rules"
+
+framework:
+  id: "SOC2"
+  name: "SOC 2 Type II"
+  description: "Service Organization Control 2 - Trust Service Criteria"
+  reference: "https://www.aicpa-cima.com/topic/audit-assurance/audit-and-assurance-greater-than-soc-2"
+  version: "2017"
+
+rules:
+  - id: "SOC2-CC6.1"
+    name: "Logical Access Controls"
+    description: "Logical access security software, infrastructure, and architectures have been implemented per CC6.1"
+    severity: "critical"
+    required: true
+    pii_types:
+      - aws_access_key
+      - aws_secret_key
+      - api_key
+      - azure_key
+      - gcp_key
+      - jwt_token
+      - oauth_token
+      - private_key
+      - connection_string
+    actions:
+      - "block"
+      - "alert"
+      - "log"
+    remediation:
+      - "Implement credential management systems"
+      - "Rotate exposed credentials"
+      - "Use secrets management (Vault, AWS Secrets Manager)"
+
+  - id: "SOC2-CC6.6"
+    name: "System Boundary Protection"
+    description: "System boundaries are protected against unauthorized access per CC6.6"
+    severity: "high"
+    required: true
+    injection_types:
+      - "sql_injection"
+      - "xss"
+      - "prompt_injection"
+      - "html_injection"
+    actions:
+      - "block"
+      - "alert"
+      - "log"
+    remediation:
+      - "Implement input validation"
+      - "Deploy WAF protection"
+      - "Monitor for injection attacks"
+
+  - id: "SOC2-CC7.2"
+    name: "Incident Monitoring"
+    description: "Security events are evaluated and incidents are identified per CC7.2"
+    severity: "high"
+    required: true
+    pii_types:
+      - bank_account
+    actions:
+      - "alert"
+      - "log"
+    remediation:
+      - "Implement incident detection"
+      - "Document incident response procedures"
+
+  - id: "SOC2-C1.1"
+    name: "Confidential Information"
+    description: "Confidential information is identified and protected per C1.1"
+    severity: "critical"
+    required: false
+    pii_types:
+      - ssn
+      - credit_card
+    conditions:
+      context_hints:
+        - "cloud"
+        - "saas"
+        - "soc2"
+    actions:
+      - "block"
+      - "alert"
+      - "log"
+    remediation:
+      - "Classify confidential information"
+      - "Implement access controls"
+      - "Encrypt sensitive data"
+
+  - id: "SOC2-P1.1"
+    name: "Privacy Notice"
+    description: "Privacy commitments and system requirements are communicated per P1.1"
+    severity: "medium"
+    required: false
+    pii_types:
+      - email
+      - name
+    conditions:
+      context_hints:
+        - "cloud"
+        - "saas"
+    actions:
+      - "alert"
+      - "log"
+    remediation:
+      - "Provide clear privacy notices"
+      - "Document data collection practices"
+      - "Obtain appropriate consent"
+
+  - id: "SOC2-PI1.1"
+    name: "Processing Integrity"
+    description: "System processing is complete, valid, accurate, timely, and authorized per PI1.1"
+    severity: "medium"
+    required: false
+    injection_types:
+      - "sql_injection"
+    actions:
+      - "block"
+      - "log"
+    remediation:
+      - "Validate all input data"
+      - "Implement processing integrity checks"
+
+trust_service_categories:
+  - "Security (CC)"
+  - "Availability (A)"
+  - "Processing Integrity (PI)"
+  - "Confidentiality (C)"
+  - "Privacy (P)"

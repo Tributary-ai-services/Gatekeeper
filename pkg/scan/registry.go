@@ -38,6 +38,12 @@ func NewDefaultRegistry() PatternRegistry {
 	registry.Register(NewAWSAccessKeyMatcher())
 	registry.Register(NewAWSSecretKeyMatcher())
 	registry.Register(NewAPIKeyMatcher())
+	registry.Register(NewPrivateKeyMatcher())
+	registry.Register(NewAzureCredentialMatcher())
+	registry.Register(NewGCPKeyMatcher())
+	registry.Register(NewJWTTokenMatcher())
+	registry.Register(NewOAuthCredentialMatcher())
+	registry.Register(NewConnectionStringMatcher())
 
 	// Register injection matchers
 	registry.Register(NewSQLInjectionMatcher())

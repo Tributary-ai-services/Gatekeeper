@@ -25,6 +25,12 @@ const (
 	PIITypeAWSAccessKey        PIIType = "aws_access_key"
 	PIITypeAWSSecretKey        PIIType = "aws_secret_key"
 	PIITypeAPIKey              PIIType = "api_key"
+	PIITypeAzureKey            PIIType = "azure_key"
+	PIITypeGCPKey              PIIType = "gcp_key"
+	PIITypeJWTToken            PIIType = "jwt_token"
+	PIITypeOAuthToken          PIIType = "oauth_token"
+	PIITypePrivateKey          PIIType = "private_key"
+	PIITypeConnectionString    PIIType = "connection_string"
 	PIITypeCustom              PIIType = "custom"
 )
 
@@ -97,7 +103,12 @@ const (
 	FrameworkPCIDSS  Framework = "PCI_DSS"
 	FrameworkSOX     Framework = "SOX"
 	FrameworkCCPA    Framework = "CCPA"
-	FrameworkSecurity Framework = "SECURITY"
+	FrameworkSecurity  Framework = "SECURITY"
+	FrameworkNISTCSF   Framework = "NIST_CSF"
+	FrameworkNISTAIRMF Framework = "NIST_AI_RMF"
+	FrameworkSOC2      Framework = "SOC2"
+	FrameworkEUAIAct   Framework = "EU_AI_ACT"
+	FrameworkISO27001  Framework = "ISO_27001"
 )
 
 // TrustTier represents the trust level of content source
@@ -291,8 +302,9 @@ type ScanConfig struct {
 	MaskTypes        []PIIType         `json:"mask_types,omitempty"`
 
 	// Compliance
-	ComplianceRules  []ComplianceRule  `json:"compliance_rules,omitempty"`
-	ScanMetadata     bool              `json:"scan_metadata"`
+	ComplianceRules      []ComplianceRule       `json:"compliance_rules,omitempty"`
+	ScanMetadata         bool                   `json:"scan_metadata"`
+	ClassificationHints  ClassificationContext  `json:"classification_hints,omitempty"`
 }
 
 // CustomPattern allows defining custom detection patterns

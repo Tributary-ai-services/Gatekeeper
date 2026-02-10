@@ -217,8 +217,117 @@ patterns:
     name: "API Key"
     type: "credential"
     severity: "high"
-    description: "Generic API key pattern"
+    description: "Generic API key pattern (OpenAI, GitHub, GitLab, Slack, Stripe, SendGrid, Anthropic, etc.)"
     regex: '\b(?:api[_-]?key|apikey|api[_-]?token)["\s:=]+["\']?([A-Za-z0-9_\-]{20,64})["\']?\b'
+    known_prefixes:
+      openai: "sk-"
+      github_pat: "ghp_"
+      github_oauth: "gho_"
+      gitlab_pat: "glpat-"
+      slack: "xox[baprs]-"
+      stripe_secret: "sk_live_|sk_test_"
+      stripe_pub: "pk_live_|pk_test_"
+      sendgrid: "SG."
+      anthropic: "sk-ant-"
+      twilio: "AC"
+      digitalocean: "dop_v1_"
+      huggingface: "hf_"
+      npm: "npm_"
+      pypi: "pypi-"
+      nuget: "nuget"
     examples:
       - 'api_key="abc123def456..."'
+      - 'sk-abcdefghijklmnopqrstuvwxyz123456'
+      - 'sk_test_<24+ alphanumeric chars>'
+      - 'SG.<22 chars>.<43 chars>'
     risk_base: 0.85
+
+  # Azure Credentials
+  - id: "azure_key"
+    name: "Azure Credential"
+    type: "credential"
+    severity: "critical"
+    description: "Azure credentials (storage keys, AD client secrets, connection strings, SAS tokens)"
+    patterns:
+      storage_key: 'AccountKey=[A-Za-z0-9+/=]{44,88}'
+      connection_string: 'DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[A-Za-z0-9+/=]{44,88}'
+      sas_token: '\?sv=\d{4}-\d{2}-\d{2}&s[a-z]=.*?&sig=[A-Za-z0-9%+/=]+'
+      ad_secret: '(?i)(?:client[_-]?secret|azure[_-]?(?:ad|active[_-]?directory)[_-]?(?:secret|key))[\s:=]+[A-Za-z0-9~._\-]{34,}'
+    examples:
+      - 'DefaultEndpointsProtocol=https;AccountName=myacct;AccountKey=abc123...=='
+      - 'azure_storage_key="dGVzdGtleUVYQU1QTEUwMTIzNDU2Nzg5QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZn=="'
+    risk_base: 0.95
+
+  # GCP Credentials
+  - id: "gcp_key"
+    name: "GCP Credential"
+    type: "credential"
+    severity: "critical"
+    description: "Google Cloud Platform credentials (API keys, service account patterns)"
+    patterns:
+      api_key: '\bAIza[0-9A-Za-z_\-]{35}\b'
+      labeled_key: '(?i)(?:google[_-]?(?:api[_-]?)?key|gcp[_-]?key)[\s:=]+[A-Za-z0-9_\-]{20,}'
+      service_account: '"type"\s*:\s*"service_account"'
+    examples:
+      - 'AIzaSyC-ABC123_defGHI456_jklMNO789_pqrSTU0'
+      - 'google_api_key="abcdefghijklmnopqrstuvwxyz"'
+    risk_base: 0.95
+
+  # JWT Tokens
+  - id: "jwt_token"
+    name: "JWT Token"
+    type: "credential"
+    severity: "high"
+    description: "JSON Web Tokens (critical for Keycloak/OIDC)"
+    regex: 'eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
+    examples:
+      - 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature'
+    risk_base: 0.85
+    frameworks:
+      - SECURITY
+
+  # OAuth/PAT Tokens
+  - id: "oauth_token"
+    name: "OAuth/PAT Credential"
+    type: "credential"
+    severity: "high"
+    description: "OAuth client secrets, OIDC secrets, and platform Personal Access Tokens"
+    patterns:
+      client_secret: '(?i)(?:client[_-]?secret|oauth[_-]?secret|oidc[_-]?secret|keycloak[_-]?secret)[\s:=]+[A-Za-z0-9_\-]{16,}'
+      azure_devops_pat: '(?i)(?:azure[_-]?devops|ado)[_-]?(?:pat|token)[\s:=]+[A-Za-z0-9]{52}'
+      atlassian_token: '(?i)(?:atlassian|jira|confluence)[_-]?(?:api[_-]?)?(?:key|token)[\s:=]+[A-Za-z0-9]{24,}'
+      bitbucket_token: '(?i)(?:bitbucket)[_-]?(?:app[_-]?)?(?:password|token)[\s:=]+[A-Za-z0-9]{18,}'
+      generic_oauth: '(?i)(?:oauth[_-]?(?:access[_-]?)?token|refresh[_-]?token|bearer[_-]?token)[\s:=]+[A-Za-z0-9_\-\.]{20,}'
+    examples:
+      - 'client_secret="abcdefghijklmnopqrstuvwxyz123456"'
+      - 'jira_api_token="ABCDEFGHIJKLMNOPQRSTUVWXyz"'
+    risk_base: 0.85
+
+  # Private Key
+  - id: "private_key"
+    name: "Private Key"
+    type: "credential"
+    severity: "critical"
+    description: "PEM-encoded private keys (RSA, DSA, EC, OPENSSH, PGP)"
+    regex: '-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY-----'
+    examples:
+      - '-----BEGIN RSA PRIVATE KEY-----'
+      - '-----BEGIN PRIVATE KEY-----'
+    risk_base: 0.99
+
+  # Database Connection Strings
+  - id: "connection_string"
+    name: "Database Connection String"
+    type: "credential"
+    severity: "critical"
+    description: "Database connection URIs with embedded passwords (PostgreSQL, MySQL, MongoDB, Redis)"
+    patterns:
+      postgresql: '(?i)postgres(?:ql)?://[^\s:]+:[^\s@]+@[^\s]+'
+      mysql: '(?i)mysql://[^\s:]+:[^\s@]+@[^\s]+'
+      mongodb: '(?i)mongodb(?:\+srv)?://[^\s:]+:[^\s@]+@[^\s]+'
+      redis: '(?i)redis://[^\s:]+:[^\s@]+@[^\s]+'
+      jdbc: '(?i)jdbc:[a-z]+://[^\s]+(?:password|pwd)\s*=\s*[^\s;&]+'
+    examples:
+      - 'postgresql://user:password@localhost:5432/mydb'
+      - 'mongodb+srv://admin:secret@cluster0.example.net/mydb'
+    risk_base: 0.92

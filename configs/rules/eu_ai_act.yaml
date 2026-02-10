@@ -1,0 +1,135 @@
+# EU AI Act Compliance Rules
+# Gatekeeper - TAS Gatekeeper Library
+
+version: "1.0"
+name: "eu_ai_act"
+description: "European Union Artificial Intelligence Act compliance rules"
+
+framework:
+  id: "EU_AI_ACT"
+  name: "EU AI Act"
+  description: "European regulation laying down harmonised rules on artificial intelligence"
+  reference: "https://artificialintelligenceact.eu/"
+  version: "2024"
+
+rules:
+  - id: "EUAI-ART9"
+    name: "Risk Management System"
+    description: "High-risk AI systems shall have a risk management system per Article 9"
+    severity: "high"
+    required: false
+    pii_types:
+      - ssn
+      - credit_card
+      - medical_record_number
+    conditions:
+      context_hints:
+        - "eu"
+        - "ai"
+        - "high-risk"
+    actions:
+      - "alert"
+      - "log"
+    remediation:
+      - "Implement AI risk management system"
+      - "Document risks and mitigations"
+      - "Conduct regular risk assessments"
+
+  - id: "EUAI-ART10"
+    name: "Data Governance"
+    description: "Training, validation, and testing datasets shall meet data governance requirements per Article 10"
+    severity: "high"
+    required: false
+    pii_types:
+      - ssn
+      - name
+      - email
+      - date_of_birth
+    conditions:
+      context_hints:
+        - "eu"
+        - "ai"
+        - "training"
+        - "model"
+    actions:
+      - "alert"
+      - "log"
+    remediation:
+      - "Implement data governance for AI training data"
+      - "Ensure data quality and representativeness"
+      - "Document data provenance"
+
+  - id: "EUAI-ART10-SPECIAL"
+    name: "Special Category Data in AI"
+    description: "Special category personal data in AI systems requires explicit safeguards per Article 10"
+    severity: "critical"
+    required: true
+    pii_types:
+      - medical_record_number
+    conditions:
+      context_hints:
+        - "eu"
+        - "ai"
+    actions:
+      - "block"
+      - "alert"
+      - "log"
+    remediation:
+      - "Obtain explicit legal basis for processing"
+      - "Implement enhanced safeguards for special category data"
+      - "Document necessity and proportionality"
+
+  - id: "EUAI-ART13"
+    name: "Transparency"
+    description: "High-risk AI systems shall be designed to ensure transparency per Article 13"
+    severity: "medium"
+    required: false
+    pii_types:
+      - name
+      - email
+    conditions:
+      context_hints:
+        - "eu"
+        - "ai"
+    actions:
+      - "log"
+    remediation:
+      - "Provide clear documentation of AI system capabilities"
+      - "Ensure users understand AI involvement in decisions"
+
+  - id: "EUAI-ART15"
+    name: "Robustness and Security"
+    description: "High-risk AI systems shall be resilient against manipulation per Article 15"
+    severity: "critical"
+    required: true
+    injection_types:
+      - "prompt_injection"
+    actions:
+      - "block"
+      - "alert"
+      - "log"
+    remediation:
+      - "Implement adversarial robustness measures"
+      - "Protect AI systems against prompt injection"
+      - "Monitor for adversarial inputs"
+      - "Document security measures"
+
+risk_categories:
+  unacceptable:
+    - "Social scoring by governments"
+    - "Real-time biometric identification in public"
+  high_risk:
+    - "Critical infrastructure"
+    - "Education and vocational training"
+    - "Employment and worker management"
+    - "Essential services access"
+    - "Law enforcement"
+    - "Migration and border control"
+    - "Justice administration"
+  limited_risk:
+    - "Chatbots and AI assistants"
+    - "Emotion recognition"
+    - "Deep fakes"
+  minimal_risk:
+    - "AI-enabled video games"
+    - "Spam filters"

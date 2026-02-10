@@ -1,0 +1,102 @@
+# NIST AI Risk Management Framework (AI RMF) Compliance Rules
+# Gatekeeper - TAS Gatekeeper Library
+
+version: "1.0"
+name: "nist_ai_rmf"
+description: "NIST AI Risk Management Framework compliance rules"
+
+framework:
+  id: "NIST_AI_RMF"
+  name: "NIST AI Risk Management Framework"
+  description: "Framework for managing risks in AI systems"
+  reference: "https://www.nist.gov/artificial-intelligence/ai-risk-management-framework"
+  version: "1.0"
+
+rules:
+  - id: "NIST-AI-MAP-1.5"
+    name: "Individual Impact Assessment"
+    description: "Impacts to individuals are assessed per MAP-1.5"
+    severity: "high"
+    required: false
+    pii_types:
+      - ssn
+      - email
+      - name
+    conditions:
+      context_hints:
+        - "ai"
+        - "machine learning"
+        - "model"
+        - "llm"
+        - "training data"
+    actions:
+      - "alert"
+      - "log"
+    remediation:
+      - "Assess potential harm to individuals"
+      - "Document PII usage in AI context"
+      - "Implement privacy-preserving techniques"
+
+  - id: "NIST-AI-MEASURE-2.6"
+    name: "AI Safety Assessment"
+    description: "AI system safety is assessed per MEASURE-2.6"
+    severity: "high"
+    required: true
+    injection_types:
+      - "prompt_injection"
+    actions:
+      - "block"
+      - "alert"
+      - "log"
+    remediation:
+      - "Implement prompt injection defenses"
+      - "Monitor AI system inputs for adversarial content"
+      - "Document safety incidents"
+
+  - id: "NIST-AI-MANAGE-2.2"
+    name: "Risk Tracking"
+    description: "AI risks are tracked and managed per MANAGE-2.2"
+    severity: "critical"
+    required: false
+    pii_types:
+      - medical_record_number
+      - credit_card
+    conditions:
+      context_hints:
+        - "ai"
+        - "machine learning"
+        - "model"
+        - "llm"
+    actions:
+      - "alert"
+      - "log"
+    remediation:
+      - "Track sensitive data usage in AI systems"
+      - "Implement data governance controls"
+      - "Document risk mitigations"
+
+  - id: "NIST-AI-GOVERN-1.2"
+    name: "AI Governance"
+    description: "AI system governance processes are documented per GOVERN-1.2"
+    severity: "medium"
+    required: false
+    pii_types:
+      - ssn
+      - medical_record_number
+      - credit_card
+    conditions:
+      context_hints:
+        - "ai"
+        - "training"
+    actions:
+      - "log"
+    remediation:
+      - "Document AI governance processes"
+      - "Establish oversight mechanisms"
+
+ai_risk_categories:
+  - "Bias and fairness"
+  - "Privacy and data protection"
+  - "Safety and security"
+  - "Transparency and explainability"
+  - "Accountability"

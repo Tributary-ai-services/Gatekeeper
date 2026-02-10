@@ -75,13 +75,17 @@ type Classifier interface {
 
 // ClassificationContext provides context for classification decisions
 type ClassificationContext struct {
-	TenantID      string
-	Source        string
-	ContentType   string
-	Hints         []string // Context hints like "healthcare", "financial", "EU"
-	IsEUData      bool
-	IsHealthcare  bool
-	IsFinancial   bool
+	TenantID        string
+	Source          string
+	ContentType     string
+	Hints           []string // Context hints like "healthcare", "financial", "EU"
+	IsEUData        bool
+	IsHealthcare    bool
+	IsFinancial     bool
+	IsAIContext     bool // EU AI Act, NIST AI RMF conditional rules
+	IsCloudService  bool // SOC 2 conditional rules
+	IsGovernment    bool // NIST CSF conditional rules
+	IsCriticalInfra bool // NIST CSF conditional rules
 }
 
 // FrameworkRule defines how a pattern maps to a compliance framework

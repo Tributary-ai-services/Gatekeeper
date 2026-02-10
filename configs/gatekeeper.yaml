@@ -96,6 +96,10 @@ streaming:
       critical: "tas.compliance.findings.critical"
       hipaa: "tas.compliance.findings.hipaa"
       pci: "tas.compliance.findings.pci"
+      nist: "tas.compliance.findings.nist"
+      soc2: "tas.compliance.findings.soc2"
+      eu_ai: "tas.compliance.findings.eu_ai"
+      iso27001: "tas.compliance.findings.iso27001"
       actions: "tas.compliance.actions"
       audit: "tas.compliance.audit"
     producer:
@@ -185,4 +189,9 @@ compliance:
     - pci_dss
     - sox
     - ccpa
+    - nist_csf
+    - nist_ai_rmf
+    - soc2
+    - eu_ai_act
+    - iso_27001
   rules_dir: "/configs/rules"

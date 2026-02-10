@@ -29,10 +29,10 @@ func NewSQLInjectionMatcher() *SQLInjectionMatcher {
 			regexp.MustCompile(`(?i)'\s*(?:OR|AND)\s+['"]?\d+['"]?\s*=\s*['"]?\d+`),
 			regexp.MustCompile(`(?i)'\s*(?:OR|AND)\s+['"]?[a-z]+['"]?\s*=\s*['"]?[a-z]+`),
 			regexp.MustCompile(`(?i)(?:UNION\s+(?:ALL\s+)?SELECT)`),
-			regexp.MustCompile(`(?i)(?:SELECT\s+.*\s+FROM\s+.*\s+WHERE)`),
-			regexp.MustCompile(`(?i)(?:INSERT\s+INTO\s+.*\s+VALUES)`),
-			regexp.MustCompile(`(?i)(?:UPDATE\s+.*\s+SET\s+.*\s+WHERE)`),
-			regexp.MustCompile(`(?i)(?:DELETE\s+FROM\s+.*\s+WHERE)`),
+			regexp.MustCompile(`(?i)(?:SELECT\s+[^\n]{0,200}\s+FROM\s+[^\n]{0,200}\s+WHERE)`),
+			regexp.MustCompile(`(?i)(?:INSERT\s+INTO\s+[^\n]{0,200}\s+VALUES)`),
+			regexp.MustCompile(`(?i)(?:UPDATE\s+[^\n]{0,200}\s+SET\s+[^\n]{0,200}\s+WHERE)`),
+			regexp.MustCompile(`(?i)(?:DELETE\s+FROM\s+[^\n]{0,200}\s+WHERE)`),
 			regexp.MustCompile(`(?i)(?:DROP\s+(?:TABLE|DATABASE|INDEX))`),
 			regexp.MustCompile(`(?i)(?:TRUNCATE\s+TABLE)`),
 			regexp.MustCompile(`(?i)(?:ALTER\s+TABLE)`),
@@ -59,8 +59,30 @@ func NewSQLInjectionMatcher() *SQLInjectionMatcher {
 	return m
 }
 
+// sqlKeywords are cheap pre-screen terms — if none are present, skip all regex.
+var sqlKeywords = []string{
+	"--", "/*", "union", "select", "insert", "update", "delete",
+	"drop", "truncate", "alter", "exec", "xp_cmdshell", "waitfor",
+	"benchmark", "sleep", "load_file", "outfile", "dumpfile",
+	"information_schema", "sys.", "1=1", "'='", "having", "order by",
+	"group by", "'1'='1'", ";--",
+}
+
 // Match finds all SQL injection matches in content
 func (m *SQLInjectionMatcher) Match(content string) []Match {
+	// Fast pre-screen: skip all regex work if no SQL keywords found
+	lower := strings.ToLower(content)
+	found := false
+	for _, kw := range sqlKeywords {
+		if strings.Contains(lower, kw) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+
 	var allMatches []Match
 
 	for _, pattern := range m.patterns {
@@ -206,8 +228,29 @@ func NewXSSMatcher() *XSSMatcher {
 	return m
 }
 
+// xssKeywords are cheap pre-screen terms for XSS detection.
+var xssKeywords = []string{
+	"<script", "<iframe", "<embed", "<object", "<applet", "<meta",
+	"<link", "<base", "<svg", "javascript:", "vbscript:", "data:",
+	"expression(", "eval(", "document.", "window.", ".innerhtml",
+	"&#", "\\x", "\\u", "onclick", "onerror", "onload", "onmouse",
+}
+
 // Match finds all XSS matches in content
 func (m *XSSMatcher) Match(content string) []Match {
+	// Fast pre-screen: skip all regex work if no XSS keywords found
+	lower := strings.ToLower(content)
+	found := false
+	for _, kw := range xssKeywords {
+		if strings.Contains(lower, kw) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+
 	var allMatches []Match
 
 	for _, pattern := range m.patterns {
@@ -351,8 +394,32 @@ func NewPromptInjectionMatcher() *PromptInjectionMatcher {
 	return m
 }
 
+// promptKeywords are cheap pre-screen terms for prompt injection detection.
+var promptKeywords = []string{
+	"ignore", "disregard", "forget", "override",
+	"pretend", "act as", "roleplay", "you are now",
+	"show your", "reveal", "system prompt", "repeat your",
+	"jailbreak", "dan mode", "bypass", "do anything now",
+	"[system]", "[assistant]", "[user]", "<|im_start|>", "<|im_end|>",
+	"instruction", "new task", "objective:", "begin new", "end of",
+	"base64:", "rot13:", "hex:", "decode",
+}
+
 // Match finds all prompt injection matches in content
 func (m *PromptInjectionMatcher) Match(content string) []Match {
+	// Fast pre-screen: skip all regex work if no prompt injection keywords found
+	lower := strings.ToLower(content)
+	found := false
+	for _, kw := range promptKeywords {
+		if strings.Contains(lower, kw) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+
 	var allMatches []Match
 
 	for _, pattern := range m.patterns {

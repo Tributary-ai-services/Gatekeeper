@@ -238,14 +238,11 @@ func (s *defaultScanner) getInjectionType(matcherID string) InjectionType {
 
 // buildClassificationContext builds context for classification
 func (s *defaultScanner) buildClassificationContext(config *ScanConfig) ClassificationContext {
-	ctx := ClassificationContext{
-		Hints: []string{},
+	hints := config.ClassificationHints
+	if hints.Hints == nil {
+		hints.Hints = []string{}
 	}
-
-	// Infer context from scan config hints if available
-	// This would typically be set by the caller based on request metadata
-
-	return ctx
+	return hints
 }
 
 // buildViolations groups findings into compliance violations

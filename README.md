@@ -4,9 +4,10 @@ TAS Gatekeeper is a unified content scanning, extraction, and compliance library
 
 ## Features
 
-- **PII Detection**: 15+ PII types including SSN, credit cards, emails, phone numbers, medical records
-- **Compliance Scanning**: HIPAA, GDPR, SOX, PCI-DSS, CCPA framework rules
-- **Injection Detection**: SQL injection, XSS, prompt injection, HTML injection
+- **PII Detection**: 21+ PII types including SSN, credit cards, emails, phone numbers, medical records
+- **Credential Detection**: Multi-cloud coverage for AWS, Azure, GCP, JWT/OAuth, database connection strings, and 10+ SaaS providers (Stripe, SendGrid, Anthropic, HuggingFace, NPM, PyPI, etc.)
+- **Compliance Scanning**: 12 frameworks — HIPAA, GDPR, SOX, PCI-DSS, CCPA, NIST CSF, NIST AI RMF, SOC 2, EU AI Act, ISO 27001, plus PII and SECURITY categories
+- **Injection Detection**: SQL injection, XSS, prompt injection with keyword pre-screening optimization
 - **Content Extraction**: Embedding + SLM for large context optimization
 - **PII Tokenization**: Databunker integration for secure PII storage
 - **Scan Attestation**: Prevent duplicate scanning across services
@@ -154,6 +155,36 @@ streaming:
       findings: "tas.compliance.findings"
 ```
 
+## Compliance Frameworks
+
+| Framework | Key Rules | Conditional Context |
+|-----------|-----------|-------------------|
+| HIPAA | PHI protection, breach notification | `IsHealthcare` |
+| GDPR | Data protection, right to erasure | `IsEUData` |
+| PCI-DSS | Cardholder data protection | Always-on for credit cards |
+| SOX | Financial data controls | `IsFinancial` |
+| CCPA | Consumer data rights | Always-on for PII |
+| NIST CSF | PR.DS-1, ID.AM-5, DE.CM-1 | `IsGovernment`, `IsCriticalInfra` |
+| NIST AI RMF | MAP-1.5, MEASURE-2.6, MANAGE-2.2 | `IsAIContext` |
+| SOC 2 | CC6.1, CC6.6, CC7.2, C1.1 | `IsCloudService` |
+| EU AI Act | ART10, ART15 (robustness) | `IsEUData` + `IsAIContext` |
+| ISO 27001 | A.8.2, A.9.4, A.14.2, A.18.1.4 | Always-on for credentials |
+
+Credential and injection rules for SOC 2, ISO 27001, and NIST CSF are unconditional — credential exposure is always a violation. Prompt injection maps to EU AI Act ART15 and NIST AI RMF MEASURE-2.6 unconditionally.
+
+## Credential Detection
+
+| Provider | Patterns |
+|----------|----------|
+| AWS | Access keys (`AKIA*`), secret keys (context-based) |
+| Azure | Storage keys, connection strings, AD client secrets, SAS tokens |
+| GCP | API keys (`AIza*`), service account JSON |
+| JWT/OAuth | JWT tokens (`eyJ*`), OAuth client secrets, OIDC/Keycloak secrets |
+| PATs | GitHub, GitLab, Azure DevOps, Atlassian/Jira, Bitbucket |
+| Database | PostgreSQL, MySQL, MongoDB, Redis connection URIs with passwords |
+| SaaS | Stripe, SendGrid, Anthropic, Twilio, DigitalOcean, HuggingFace, NPM, PyPI, NuGet |
+| Keys | PEM-encoded private keys (RSA, DSA, EC, OPENSSH, PGP) |
+
 ## Trust Tiers
 
 | Tier | Description | Default Scan Profile |
@@ -172,6 +203,21 @@ X-TAS-Scan-Status: clean | violations | tokenized | skipped
 X-TAS-Scan-Request-ID: <correlation ID>
 ```
 
+## Performance
+
+Scan throughput at 100KB content on Intel i7-1185G7:
+
+| Content | Latency | Throughput | Allocs |
+|---------|---------|------------|--------|
+| Clean (no findings) | ~88ms | 1.2 MB/s | 19 |
+| Mixed (PII + credentials + injections) | ~364ms | 0.29 MB/s | 5,149 |
+
+Key optimizations:
+- **Keyword pre-screening**: Injection and credential matchers skip expensive regex when no relevant keywords present (5x speedup on clean content)
+- **Bounded regex quantifiers**: SQL injection patterns use `[^\n]{0,200}` instead of `.*` to prevent backtracking
+
+See [BENCHMARKS.md](BENCHMARKS.md) for full results including per-matcher breakdowns, CPU/memory profiles, and optimization details.
+
 ## Development
 
 ```bash
@@ -186,11 +232,18 @@ make generate-mocks
 
 # Run benchmarks
 make benchmark
+
+# Run benchmarks with profiling
+go test ./pkg/scan/ -bench=BenchmarkScanScaling -benchtime=5s -cpuprofile=cpu.prof -benchmem
+
+# Per-matcher benchmark breakdown
+go test ./pkg/scan/ -bench=BenchmarkIndividualMatchers -benchtime=3s -benchmem
 ```
 
 ## Documentation
 
 - [Design Specification](parital-design.md)
+- [Benchmarks](BENCHMARKS.md) - Performance results and profiling
 - [CLAUDE.md](CLAUDE.md) - Development guidance
 
 ## License

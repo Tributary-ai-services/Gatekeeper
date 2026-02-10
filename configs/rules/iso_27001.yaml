@@ -1,0 +1,130 @@
+# ISO 27001 Information Security Management System Rules
+# Gatekeeper - TAS Gatekeeper Library
+
+version: "1.0"
+name: "iso_27001"
+description: "ISO/IEC 27001 Annex A control compliance rules"
+
+framework:
+  id: "ISO_27001"
+  name: "ISO/IEC 27001:2022"
+  description: "International standard for information security management systems (ISMS)"
+  reference: "https://www.iso.org/standard/27001"
+  version: "2022"
+
+rules:
+  - id: "ISO27001-A.8.2"
+    name: "Information Classification"
+    description: "Information shall be classified in terms of legal requirements, value, criticality, and sensitivity per A.8.2"
+    severity: "high"
+    required: true
+    pii_types:
+      - ssn
+      - credit_card
+      - bank_account
+    actions:
+      - "alert"
+      - "log"
+    remediation:
+      - "Classify information according to sensitivity levels"
+      - "Apply appropriate handling procedures"
+      - "Label classified information"
+
+  - id: "ISO27001-A.9.4"
+    name: "Access Control"
+    description: "Access to information and application systems shall be controlled per A.9.4"
+    severity: "critical"
+    required: true
+    pii_types:
+      - aws_access_key
+      - aws_secret_key
+      - api_key
+      - azure_key
+      - gcp_key
+      - jwt_token
+      - oauth_token
+      - private_key
+      - connection_string
+    actions:
+      - "block"
+      - "alert"
+      - "log"
+    remediation:
+      - "Implement access control policies"
+      - "Use strong authentication mechanisms"
+      - "Rotate exposed credentials immediately"
+      - "Implement principle of least privilege"
+
+  - id: "ISO27001-A.12.4"
+    name: "Logging and Monitoring"
+    description: "Event logs recording user activities, exceptions, and information security events shall be produced per A.12.4"
+    severity: "medium"
+    required: true
+    pii_types:
+      - aws_access_key
+      - aws_secret_key
+      - api_key
+      - azure_key
+      - gcp_key
+    actions:
+      - "log"
+      - "audit"
+    remediation:
+      - "Maintain comprehensive event logs"
+      - "Monitor for security events"
+      - "Protect log integrity"
+
+  - id: "ISO27001-A.14.2"
+    name: "Security in Development"
+    description: "Secure development rules shall be established and applied per A.14.2"
+    severity: "high"
+    required: true
+    injection_types:
+      - "sql_injection"
+      - "xss"
+      - "prompt_injection"
+      - "html_injection"
+    actions:
+      - "block"
+      - "alert"
+      - "log"
+    remediation:
+      - "Implement secure coding practices"
+      - "Conduct security testing"
+      - "Review code for injection vulnerabilities"
+
+  - id: "ISO27001-A.18.1.4"
+    name: "Privacy and PII Protection"
+    description: "Privacy and protection of PII shall be ensured as required by relevant legislation per A.18.1.4"
+    severity: "medium"
+    required: true
+    pii_types:
+      - ssn
+      - email
+      - name
+      - date_of_birth
+      - phone_number
+      - address
+    actions:
+      - "alert"
+      - "log"
+    remediation:
+      - "Implement PII protection controls"
+      - "Ensure compliance with privacy legislation"
+      - "Document PII processing activities"
+
+annex_a_domains:
+  - "A.5: Information security policies"
+  - "A.6: Organization of information security"
+  - "A.7: Human resource security"
+  - "A.8: Asset management"
+  - "A.9: Access control"
+  - "A.10: Cryptography"
+  - "A.11: Physical and environmental security"
+  - "A.12: Operations security"
+  - "A.13: Communications security"
+  - "A.14: System acquisition, development and maintenance"
+  - "A.15: Supplier relationships"
+  - "A.16: Information security incident management"
+  - "A.17: Business continuity management"
+  - "A.18: Compliance"

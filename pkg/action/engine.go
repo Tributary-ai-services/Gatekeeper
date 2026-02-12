@@ -5,8 +5,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/Tributary-ai-services/Gatekeeper/pkg/pipeline"
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/scan"
+	"github.com/Tributary-ai-services/Gatekeeper/pkg/types"
 )
 
 // Engine evaluates rules and executes actions based on findings
@@ -15,7 +15,7 @@ type Engine interface {
 	Evaluate(ctx context.Context, req EvaluateRequest) (*EvaluateResult, error)
 
 	// Execute executes the determined actions
-	Execute(ctx context.Context, result *EvaluateResult) (*pipeline.ActionResult, error)
+	Execute(ctx context.Context, result *EvaluateResult) (*types.ActionResult, error)
 
 	// LoadRules loads rules from configuration
 	LoadRules(rules []Rule) error

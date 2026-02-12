@@ -5,17 +5,17 @@ import (
 	"context"
 	"time"
 
-	"github.com/Tributary-ai-services/Gatekeeper/pkg/pipeline"
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/scan"
+	"github.com/Tributary-ai-services/Gatekeeper/pkg/types"
 )
 
 // Attestor creates and verifies scan attestations
 type Attestor interface {
 	// Create creates a new attestation for a completed scan
-	Create(ctx context.Context, req CreateRequest) (*pipeline.Attestation, error)
+	Create(ctx context.Context, req CreateRequest) (*types.Attestation, error)
 
 	// Verify verifies an attestation signature and validity
-	Verify(ctx context.Context, attestation *pipeline.Attestation) error
+	Verify(ctx context.Context, attestation *types.Attestation) error
 
 	// CanSkip determines if scanning can be skipped based on existing attestation
 	CanSkip(ctx context.Context, req SkipCheckRequest) (canSkip bool, reason string)
@@ -39,7 +39,7 @@ type CreateRequest struct {
 
 // SkipCheckRequest contains inputs for determining if scan can be skipped
 type SkipCheckRequest struct {
-	Attestation *pipeline.Attestation
+	Attestation *types.Attestation
 	Content     []byte
 	TenantID    string
 	TrustTier   scan.TrustTier
@@ -49,19 +49,19 @@ type SkipCheckRequest struct {
 // Signer signs attestations using HMAC
 type Signer interface {
 	// Sign creates HMAC signature for attestation
-	Sign(attestation *pipeline.Attestation) (string, error)
+	Sign(attestation *types.Attestation) (string, error)
 
 	// Verify verifies attestation signature
-	Verify(attestation *pipeline.Attestation) error
+	Verify(attestation *types.Attestation) error
 }
 
 // Cache caches attestations for quick lookup
 type Cache interface {
 	// Get retrieves an attestation by content hash
-	Get(ctx context.Context, contentHash string) (*pipeline.Attestation, error)
+	Get(ctx context.Context, contentHash string) (*types.Attestation, error)
 
 	// Set stores an attestation
-	Set(ctx context.Context, attestation *pipeline.Attestation) error
+	Set(ctx context.Context, attestation *types.Attestation) error
 
 	// Delete removes an attestation
 	Delete(ctx context.Context, contentHash string) error

@@ -489,10 +489,20 @@ func (c *classifier) loadDefaultRules() {
 	}
 }
 
-// addRule adds a rule to the internal indexes
+// addRule adds a rule to the internal indexes (unexported, called during init).
 func (c *classifier) addRule(piiType PIIType, rule FrameworkRule) {
 	c.rulesByType[piiType] = append(c.rulesByType[piiType], rule)
 	c.rulesByFW[rule.Framework] = append(c.rulesByFW[rule.Framework], rule)
+}
+
+// AddRule is the exported variant of addRule. It acquires the write lock and
+// adds a rule mapping a PIIType to a FrameworkRule. This allows external
+// callers (such as configuration loaders) to register additional rules
+// alongside the built-in defaults without creating a circular dependency.
+func (c *classifier) AddRule(piiType PIIType, rule FrameworkRule) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.addRule(piiType, rule)
 }
 
 // Classify determines which frameworks a finding violates

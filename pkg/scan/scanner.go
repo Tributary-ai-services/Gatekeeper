@@ -71,6 +71,11 @@ type Classifier interface {
 
 	// GetFrameworkRules returns rules for a specific framework
 	GetFrameworkRules(framework Framework) []FrameworkRule
+
+	// AddRule registers an additional rule mapping a PIIType to a
+	// FrameworkRule. This is intended for use by configuration loaders
+	// that need to add rules from external YAML files.
+	AddRule(piiType PIIType, rule FrameworkRule)
 }
 
 // ClassificationContext provides context for classification decisions

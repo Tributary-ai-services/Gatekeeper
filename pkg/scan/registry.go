@@ -33,6 +33,11 @@ func NewDefaultRegistry() PatternRegistry {
 	registry.Register(NewIPAddressMatcher())
 	registry.Register(NewBankAccountMatcher())
 	registry.Register(NewDateOfBirthMatcher())
+	registry.Register(NewPassportMatcher())
+	registry.Register(NewDriversLicenseMatcher())
+	registry.Register(NewAddressMatcher())
+	registry.Register(NewNameMatcher())
+	registry.Register(NewMedicalRecordMatcher())
 
 	// Register credential matchers
 	registry.Register(NewAWSAccessKeyMatcher())

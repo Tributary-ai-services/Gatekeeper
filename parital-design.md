@@ -820,80 +820,171 @@ cache:
 
 ---
 
-## Migration Path
+## Migration Path (Updated 2026-02-12)
 
-### Phase 1: Extract from Audimodal (Week 1)
-1. Create `tas-contentintel` repo
-2. Extract PII detection patterns from audimodal `internal/dlp/` or `pkg/compliance/`
-3. Extract compliance rules (HIPAA, SOX, etc.)
-4. Set up Hyperscan integration
-5. Basic scan interface working
+### Phase 1: Core Scanning Library - COMPLETE
 
-### Phase 2: Add Attestation & Caching (Week 2)
-1. Implement attestation signing with Databunker
-2. Add Redis caching for attestations
-3. HTTP header encoding/decoding
-4. Skip logic for already-scanned content
+**Status**: All items implemented and tested (41+ test functions, all passing).
 
-### Phase 3: Tokenization & Extraction (Week 3)
-1. Databunker tokenization integration
-2. Embedding-based relevance filtering
-3. Ollama SLM extraction client
-4. Hybrid extraction pipeline
+**Delivered**:
+1. ~~Create `tas-contentintel` repo~~ - Done (renamed to Gatekeeper)
+2. ~~Extract PII detection patterns~~ - Done: 21 PII types implemented
+   - Core PII: SSN, credit card, email, phone, IP address, bank account, DOB, name, address
+   - Medical: medical record number
+   - Identity docs: passport, drivers license
+   - Credentials: AWS (access/secret), Azure, GCP, JWT, OAuth, API keys, private keys, connection strings
+3. ~~Extract compliance rules~~ - Done: 12 frameworks (HIPAA, GDPR, PCI-DSS, SOX, CCPA, NIST CSF, NIST AI RMF, SOC2, EU AI Act, ISO 27001, SECURITY, PII) with 100+ rules across 13 YAML config files
+4. ~~Basic scan interface~~ - Done: Scanner, PatternMatcher, Classifier, RedactionEngine, Registry
+5. ~~Injection detection~~ - Done: SQL injection, XSS, HTML injection, prompt injection, control chars
 
-### Phase 4: Integration & Streaming (Week 4)
-1. Integrate into tas-llm-router
-2. Integrate into tas-mcp
-3. Update audimodal to use shared library
-4. Kafka streaming for findings
-5. Action engine rules
+**Beyond original scope** (delivered as part of Phase 1):
+- Keyword pre-screening optimization for fast rejection before regex
+- Bounded regex patterns (`[^\n]{0,200}`) to prevent catastrophic backtracking
+- 10+ cloud credential providers (AWS, Azure, GCP, GitHub, GitLab, Bitbucket, Stripe, SendGrid, Anthropic, Twilio, DigitalOcean, HuggingFace, NPM, PyPI, NuGet)
+- Database URI detection (PostgreSQL, MySQL, MongoDB, Redis with embedded credentials)
+- Private key detection (RSA, DSA, EC, OpenSSH, PGP)
+- Comprehensive benchmarking suite (`scanner_bench_test.go`, `BENCHMARKS.md`)
+- 5 redaction strategies (mask, hash, tokenize, replace, remove) with type-specific handling
+- Conditional classification rules (context-aware: healthcare, financial, EU data, AI, government, critical infra)
 
-### Phase 5: Reporting (Week 5)
-1. Spark Structured Streaming job
-2. Spark batch true-up job
-3. Argo CronWorkflows
-4. TimescaleDB schema
-5. Dashboard API
+**Not implemented from original plan**:
+- Hyperscan integration: Using Go `regexp` instead. Config placeholders exist (`block_size`, `scratch_pool_size`) for future Hyperscan migration. Current Go regexp performance is acceptable for target workloads.
+
+### Phase 2: Attestation & Caching - COMPLETE
+
+**Status**: Fully implemented with tests (`attest_test.go`).
+
+**Delivered**:
+1. ~~Attestation signing~~ - Done: HMAC-SHA256 signing with configurable key storage (`pkg/attest/`)
+2. ~~Redis caching for attestations~~ - Done: Redis-backed attestation cache with TTL
+3. ~~HTTP header encoding/decoding~~ - Done: `X-TAS-Scan-Attestation`, `X-TAS-Scan-Status`, `X-TAS-Scan-Request-ID`
+4. ~~Skip logic for already-scanned content~~ - Done: Content hash verification, tenant matching, profile sufficiency check, trust tier escalation detection
+
+**Not implemented from original plan**:
+- Databunker key storage: Using local HMAC key, not Databunker-managed keys. Databunker integration deferred to Phase 3.
+
+### Phase 3: Tokenization & Extraction - INTERFACES ONLY
+
+**Status**: Interfaces and types defined, no implementations.
+
+**Remaining work**:
+1. **Databunker tokenization integration** (`pkg/tokenize/`)
+   - Config types defined, client interface defined
+   - Need: actual HTTP client to Databunker, tokenize/detokenize flows, audit logging
+   - Depends on: Databunker service deployment in TAS infrastructure
+2. **Embedding-based relevance filtering** (`pkg/extract/`)
+   - Interfaces defined: `Chunker`, `Embedder`, `SLMClient`
+   - Need: text chunker implementation, embedding model integration (all-MiniLM-L6-v2)
+   - Depends on: embedding model availability (Ollama sidecar or API)
+3. **Ollama SLM extraction client**
+   - Interface defined in `pkg/extract/`
+   - Need: HTTP client to Ollama API, prompt engineering for extraction
+   - Depends on: Ollama deployment with Phi-3.5-mini or Qwen2.5-3B
+4. **Hybrid extraction pipeline**
+   - Pipeline processor exists (`pkg/pipeline/`) but extraction step is a no-op
+   - Need: wire chunker → embedder → SLM into pipeline
+
+### Phase 4: Integration & Streaming - PARTIALLY COMPLETE
+
+**Status**: Library-side infrastructure complete. Service integrations not yet done.
+
+**Delivered**:
+1. ~~Kafka streaming for findings~~ - Done: `KafkaStreamer` and `LocalStreamer` in `pkg/stream/`, topic routing (framework-specific, critical, action, audit), batching, compression (snappy)
+2. ~~Action engine rules~~ - Done: Full rule engine (`pkg/action/`) with conditions, evaluator, rate limiting, cooldown, alerting (Slack, PagerDuty, webhook)
+3. ~~HTTP middleware~~ - Done: `middleware/http.go` with exempt paths/methods, context injection, tested
+4. ~~gRPC interceptor~~ - Done: `middleware/grpc.go` with unary/stream interceptors, metadata propagation
+5. ~~Pipeline processor~~ - Done: `pkg/pipeline/processor.go` orchestrating scan → classify → attest → stream → action
+6. ~~Configuration system~~ - Done: `pkg/config/` with YAML loading, env var substitution, validation
+7. ~~Standalone server binary~~ - Done: `cmd/contentintel-server/main.go` with HTTP/gRPC/metrics endpoints
+
+**Remaining work**:
+1. **Integrate into tas-llm-router** - Library ready, need to add as dependency and wire into request handling
+2. **Integrate into tas-mcp** - Library ready, need to add as dependency and wire gRPC interceptor
+3. **Update audimodal to use shared library** - Replace existing scattered DLP/compliance code with Gatekeeper
+4. **Action engine: MCP server blocking** - Action type defined (`block_mcp_server`) but execution not implemented
+5. **gRPC service definition** - Middleware works but no `.proto` files for standalone gRPC service API
+
+### Phase 5: Reporting - NOT STARTED
+
+**Status**: No implementation.
+
+**Remaining work** (all items):
+1. **Spark Structured Streaming job** - Consume `tas.compliance.findings` from Kafka, 30-second micro-batches, watermark 2 min
+2. **Spark batch true-up job** - Hourly reconciliation, exact counts
+3. **Argo CronWorkflows** - Hourly true-up, daily rollup, late reprocessing, retention cleanup
+4. **TimescaleDB schema** - Realtime tables (1-min windows), batch tables (hourly/daily), serving views (merged)
+5. **Dashboard API** - REST API for compliance dashboards
 
 ---
 
-## Existing Code to Review
+## Current Implementation Summary
 
-When implementing, examine these files in the existing repos:
+### Files Implemented
 
-### audimodal
-- `internal/dlp/` or `pkg/dlp/` - DLP pipeline implementation
-- `pkg/compliance/` - Compliance scanning
-- PII patterns for 15+ types (SSN, credit card, email, phone, etc.)
+| Package | Files | Tests | Status |
+|---------|-------|-------|--------|
+| `pkg/scan/` | types, matchers (20+), classifier, registry, scanner, redaction | scanner_test, classifier_test, redaction_test, matchers_pii_extended_test, scanner_bench_test | Complete |
+| `pkg/attest/` | signer, verifier, cache, attestation | attest_test | Complete |
+| `pkg/pipeline/` | processor, types | processor_test | Complete (extraction step stubbed) |
+| `pkg/stream/` | kafka, local, finding | stream_test | Complete |
+| `pkg/action/` | engine, rules, evaluator, alerter | engine_test | Complete |
+| `pkg/config/` | config, loader, validation | config_test | Complete |
+| `pkg/extract/` | interfaces, types | None | Interfaces only |
+| `pkg/tokenize/` | types, config | None | Types only |
+| `middleware/` | http, grpc | http_test | Complete |
+| `cmd/contentintel-server/` | main | None | Complete |
+| `configs/rules/` | 13 YAML files | N/A | Complete |
 
-### aether-be
-- `internal/middleware/` - Compliance middleware
-- Request/response scanning integration
-
-### tas-llm-router
-- `llm-router-waf-design.md` - WAF design document
-- `internal/server/` - Request validation
-
-### tas-mcp
-- `internal/forwarding/` - Event forwarding rules engine
-- Can be extended for content scanning
-
----
-
-## Go Dependencies
+### Dependency Status
 
 ```go
-// go.mod additions
-
+// Currently in go.mod
 require (
-    github.com/flier/gohs v1.2.0           // Hyperscan bindings
-    github.com/Shopify/sarama v1.40.0      // Kafka client
-    github.com/redis/go-redis/v9 v9.3.0    // Redis client
-    github.com/jackc/pgx/v5 v5.5.0         // PostgreSQL (TimescaleDB)
-    github.com/gin-gonic/gin v1.9.1        // HTTP middleware
-    google.golang.org/grpc v1.60.0         // gRPC middleware
+    github.com/IBM/sarama              // Kafka client - USED
+    google.golang.org/grpc             // gRPC framework - USED
+    gopkg.in/yaml.v3                   // YAML parsing - USED
+    github.com/google/uuid             // UUID generation - USED
 )
+
+// From original plan - NOT YET ADDED
+// github.com/flier/gohs              // Hyperscan - deferred (using Go regexp)
+// github.com/redis/go-redis/v9       // Redis - referenced in attest, not in go.mod yet
+// github.com/jackc/pgx/v5            // PostgreSQL/TimescaleDB - Phase 5
+// github.com/gin-gonic/gin           // Gin middleware - middleware uses net/http directly
 ```
+
+### Test Coverage
+
+- **11 test files**, **41+ top-level test functions**, all passing
+- Race detection passes (`go test -race ./...`)
+- Benchmark suite for scanner performance
+- Table-driven tests with subcases using `t.Run()`
+
+---
+
+## Revised Priority & Next Steps
+
+### High Priority (Phase 3 completion)
+1. Implement Databunker client (`pkg/tokenize/`) - enables PII tokenization instead of just masking
+2. Implement text chunker (`pkg/extract/`) - enables large content reduction
+3. Wire extraction into pipeline processor
+
+### Medium Priority (Phase 4 completion)
+4. Add Gatekeeper as dependency to tas-llm-router and wire into request handling
+5. Add Gatekeeper as dependency to tas-mcp and wire gRPC interceptor
+6. Implement MCP server blocking action
+7. Define `.proto` files for standalone gRPC service API
+8. Add redis/go-redis to go.mod and test attestation cache against real Redis
+
+### Lower Priority (Phase 5)
+9. Design TimescaleDB schema for compliance reporting
+10. Implement Spark streaming job
+11. Build dashboard API
+12. Set up Argo CronWorkflows
+
+### Deferred
+- **Hyperscan migration**: Current Go regexp is sufficient. Revisit if scan latency becomes a bottleneck at scale.
+- **Avro schema registry**: Using JSON for Kafka messages currently. Add Avro if schema evolution becomes a concern.
 
 ---
 
@@ -908,12 +999,12 @@ require (
 
 ---
 
-## Open Questions for Implementation
+## Resolved Questions
 
-1. What's the exact interface for compliance scanning in audimodal today?
-2. What patterns are currently implemented vs. need to be added?
-3. Is there existing Redis infrastructure we can use for attestation caching?
-4. What's the current Kafka topic structure in tas-mcp?
-5. Are there existing Argo WorkflowTemplates we should follow as patterns?
-6. What's the authentication model for Databunker?
+1. ~~What's the exact interface for compliance scanning in audimodal today?~~ - Extracted and consolidated into Gatekeeper's `pkg/scan/` package
+2. ~~What patterns are currently implemented vs. need to be added?~~ - 21 PII types, 5 injection types, 10+ credential providers fully implemented
+3. ~~Is there existing Redis infrastructure we can use for attestation caching?~~ - Yes, `tas-redis-shared:6379` on `tas-shared-network`
+4. What's the current Kafka topic structure in tas-mcp? - Still needs investigation before Phase 4 integration
+5. Are there existing Argo WorkflowTemplates we should follow as patterns? - Needs investigation for Phase 5
+6. ~~What's the authentication model for Databunker?~~ - API key auth, configured via `DATABUNKER_API_KEY` env var
 

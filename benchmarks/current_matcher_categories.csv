@@ -1,0 +1,4 @@
+category,size_kb,ms,mb_per_sec,bytes_alloc,allocs
+credentials,100,138.61,0.74,358913,375
+pii,100,104.05,0.98,87769,405
+injection,100,326.22,0.31,391168,112

@@ -1,0 +1,26 @@
+{
+  "date": "2026-02-25",
+  "cpu": "11th Gen Intel Core i7-1185G7 @ 3.00GHz",
+  "os": "Linux 6.6.87.2 (WSL2)",
+  "go_version": "1.24",
+  "gomaxprocs": 8,
+  "matcher_count": 24,
+  "pattern_count": 106,
+  "current_engine": "go_regexp",
+  "projected_engine": "hyperscan",
+  "projection_assumptions": {
+    "hyperscan_throughput_gbps": 2.0,
+    "note": "Conservative estimate for mobile Tiger Lake AVX2; Intel documents 3+ Gbps on Xeon",
+    "post_match_overhead": "Measured from current benchmarks: total_time - sum(regex_time). Stays constant since it is Go code (finding construction, confidence scoring, context extraction, classification)",
+    "mixed_content_density": "~2 sensitive items per KB of content",
+    "design_target_ms": 5.0
+  },
+  "files": {
+    "current_full_scan.csv": "Full scan latency across content sizes (clean vs mixed)",
+    "current_profiles.csv": "Scan profile comparison (pii_only, injection_only, full+redaction)",
+    "current_individual_matchers.csv": "Per-matcher latency at 100KB (clean vs mixed)",
+    "current_matcher_categories.csv": "Aggregate latency by matcher category at 100KB",
+    "projected_hyperscan.csv": "Projected Hyperscan latency vs current, with speedup factor",
+    "projected_profiles.csv": "Projected profile comparison at 100KB mixed content"
+  }
+}

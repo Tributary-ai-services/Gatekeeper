@@ -250,6 +250,30 @@ func (p *defaultProcessor) Process(ctx context.Context, req ProcessRequest) (*Pr
 	return result, nil
 }
 
+// Summarize produces a summary of content using the configured extractor.
+func (p *defaultProcessor) Summarize(ctx context.Context, req SummarizeRequest) (*SummarizeResult, error) {
+	if p.extractor == nil {
+		return nil, fmt.Errorf("no extractor configured for summarization")
+	}
+
+	var summarizeCtx context.Context
+	var summarizeCancel context.CancelFunc
+	if p.config.ExtractionTimeout > 0 {
+		summarizeCtx, summarizeCancel = context.WithTimeout(ctx, p.config.ExtractionTimeout)
+	} else {
+		summarizeCtx, summarizeCancel = context.WithCancel(ctx)
+	}
+	defer summarizeCancel()
+
+	return p.extractor.Summarize(summarizeCtx, extract.SummarizeRequest{
+		Content:     req.Content,
+		Query:       req.Query,
+		Strategy:    req.Strategy,
+		MaxLength:   req.MaxLength,
+		ContentType: req.ContentType,
+	})
+}
+
 // ScanOnly performs scanning without attestation or actions.
 func (p *defaultProcessor) ScanOnly(ctx context.Context, content []byte, config *scan.ScanConfig) (*scan.ScanResult, error) {
 	return p.scanner.Scan(ctx, content, config)

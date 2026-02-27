@@ -155,6 +155,157 @@ func (e *defaultExtractor) Extract(ctx context.Context, req ExtractRequest) (*Ex
 	return result, nil
 }
 
+// Summarize produces a summary of the content using the specified strategy.
+func (e *defaultExtractor) Summarize(ctx context.Context, req SummarizeRequest) (*SummarizeResult, error) {
+	start := time.Now()
+	originalSize := len(req.Content)
+
+	if e.slmClient == nil {
+		return nil, fmt.Errorf("summarization requires an SLM client")
+	}
+
+	maxLength := req.MaxLength
+	if maxLength <= 0 {
+		maxLength = e.config.MaxSummaryLength
+	}
+	if maxLength <= 0 {
+		maxLength = 1024
+	}
+
+	strategy := req.Strategy
+	// Embed-then-summarize requires a query; fall back to map-reduce without one
+	if strategy == StrategyEmbedThenSummarize && req.Query == "" {
+		strategy = StrategyMapReduce
+	}
+
+	var result *SummarizeResult
+	var err error
+
+	switch strategy {
+	case StrategyEmbedThenSummarize:
+		result, err = e.summarizeEmbed(ctx, req, maxLength)
+		if err != nil {
+			// Embedding failed — fall back to map-reduce
+			result, err = e.summarizeMapReduce(ctx, req, maxLength)
+		}
+	default:
+		result, err = e.summarizeMapReduce(ctx, req, maxLength)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	result.OriginalSize = originalSize
+	result.SummarySize = len(result.Summary)
+	if originalSize > 0 {
+		result.ReductionRatio = 1 - float64(result.SummarySize)/float64(originalSize)
+	}
+	result.ProcessingTime = time.Since(start)
+
+	return result, nil
+}
+
+// summarizeMapReduce chunks content, summarizes each chunk, then merges.
+func (e *defaultExtractor) summarizeMapReduce(ctx context.Context, req SummarizeRequest, maxLength int) (*SummarizeResult, error) {
+	chunkSize := e.config.SummarizeChunkSize
+	if chunkSize <= 0 {
+		chunkSize = 2048
+	}
+
+	chunker := NewChunker(chunkSize)
+	chunks := chunker.Chunk(req.Content)
+
+	if len(chunks) == 0 {
+		chunks = []Chunk{{Content: string(req.Content), Index: 0}}
+	}
+
+	result := &SummarizeResult{
+		ChunksProcessed: len(chunks),
+	}
+
+	slmStart := time.Now()
+
+	// Summarize each chunk
+	summaries := make([]string, 0, len(chunks))
+	perChunkMax := maxLength
+	if len(chunks) > 1 {
+		// Give each chunk a proportional budget for the intermediate summary
+		perChunkMax = maxLength / len(chunks)
+		if perChunkMax < 100 {
+			perChunkMax = 100
+		}
+	}
+
+	for _, chunk := range chunks {
+		summary, err := e.slmClient.Summarize(ctx, chunk.Content, perChunkMax)
+		if err != nil {
+			return nil, fmt.Errorf("summarize chunk failed: %w", err)
+		}
+		summaries = append(summaries, summary)
+		result.SLMCalls++
+	}
+
+	// If single chunk, no merge needed
+	if len(summaries) == 1 {
+		result.Summary = summaries[0]
+		result.SLMTime = time.Since(slmStart)
+		return result, nil
+	}
+
+	// Merge all summaries
+	merged, err := e.slmClient.SummarizeMerge(ctx, summaries, req.Query, maxLength)
+	if err != nil {
+		return nil, fmt.Errorf("summarize merge failed: %w", err)
+	}
+	result.SLMCalls++
+	result.Summary = merged
+	result.SLMTime = time.Since(slmStart)
+
+	return result, nil
+}
+
+// summarizeEmbed uses embedding to select relevant chunks, then summarizes.
+func (e *defaultExtractor) summarizeEmbed(ctx context.Context, req SummarizeRequest, maxLength int) (*SummarizeResult, error) {
+	// Chunk content with overlap (same as extraction)
+	overlap := e.config.ChunkOverlap
+	chunks := e.chunker.ChunkWithOverlap(req.Content, overlap)
+
+	if len(chunks) == 0 {
+		chunks = []Chunk{{Content: string(req.Content), Index: 0}}
+	}
+
+	result := &SummarizeResult{
+		ChunksProcessed: len(chunks),
+	}
+
+	// Score and filter chunks by relevance
+	retainedChunks, embeddingTime, err := e.scoreAndFilterChunks(ctx, req.Query, chunks)
+	result.EmbeddingTime = embeddingTime
+	if err != nil {
+		return nil, fmt.Errorf("embedding failed: %w", err)
+	}
+
+	if len(retainedChunks) == 0 {
+		retainedChunks = chunks
+	}
+
+	// Concatenate retained chunks
+	concatenated := concatenateChunks(retainedChunks)
+
+	// Single SLM call on the filtered content
+	slmStart := time.Now()
+	summary, err := e.slmClient.Summarize(ctx, concatenated, maxLength)
+	if err != nil {
+		return nil, fmt.Errorf("summarize failed: %w", err)
+	}
+	result.SLMCalls = 1
+	result.Summary = summary
+	result.SLMTime = time.Since(slmStart)
+
+	return result, nil
+}
+
 // Close releases resources held by sub-components.
 func (e *defaultExtractor) Close() error {
 	if e.slmClient != nil {

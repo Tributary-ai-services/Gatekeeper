@@ -1,13 +1,4 @@
 size_kb,profile,ms,mb_per_sec,bytes_alloc,allocs
-2,pii_only,2.83,0.72,12438,89
-10,pii_only,23.21,0.44,73781,408
-25,pii_only,59.24,0.43,209229,1093
-100,pii_only,228.41,0.45,812651,3939
-2,injection_only,2.58,0.79,11694,63
-10,injection_only,22.69,0.45,60025,221
-25,injection_only,67.63,0.38,130238,349
-100,injection_only,480.49,0.21,503757,1269
-2,full_redaction,8.35,0.25,33898,172
-10,full_redaction,60.08,0.17,354962,781
-25,full_redaction,213.63,0.12,1606632,1818
-100,full_redaction,632.30,0.16,19422832,6555
+100,pii_only,222.99,0.46,756484,3883
+100,injection_only,251.93,0.41,515457,1274
+100,full_redaction,478.97,0.21,19402093,6510

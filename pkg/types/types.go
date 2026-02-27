@@ -70,6 +70,8 @@ type ProcessMetrics struct {
 	ContentSize        int  `json:"content_size"`
 	ExtractedSize      int  `json:"extracted_size,omitempty"`
 	ExtractionRatio    float64 `json:"extraction_ratio,omitempty"`
+	SummarizeDuration  time.Duration `json:"summarize_duration,omitempty"`
+	SummarySize        int  `json:"summary_size,omitempty"`
 	FindingsCount      int  `json:"findings_count"`
 	AttestationSkipped bool `json:"attestation_skipped"`
 }

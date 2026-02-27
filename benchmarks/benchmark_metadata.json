@@ -1,5 +1,6 @@
 {
-  "date": "2026-02-25",
+  "date": "2026-02-27",
+  "version": "V3 (post SLM summarization modes)",
   "cpu": "11th Gen Intel Core i7-1185G7 @ 3.00GHz",
   "os": "Linux 6.6.87.2 (WSL2)",
   "go_version": "1.24",

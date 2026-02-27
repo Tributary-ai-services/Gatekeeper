@@ -100,6 +100,24 @@ func (s *ollamaSLMClient) Summarize(ctx context.Context, content string, maxLeng
 	return response, nil
 }
 
+// SummarizeMerge merges multiple chunk summaries into a single coherent summary.
+func (s *ollamaSLMClient) SummarizeMerge(ctx context.Context, summaries []string, query string, maxLength int) (string, error) {
+	queryClause := ""
+	if query != "" {
+		queryClause = fmt.Sprintf(" Focus on information relevant to: %s.", query)
+	}
+
+	combined := strings.Join(summaries, "\n\n---\n\n")
+	prompt := fmt.Sprintf(MergePrompt, maxLength, queryClause, combined)
+
+	response, _, err := s.generate(ctx, prompt, s.maxTokens)
+	if err != nil {
+		return "", fmt.Errorf("SLM merge failed: %w", err)
+	}
+
+	return response, nil
+}
+
 // Close releases resources. No-op for HTTP client.
 func (s *ollamaSLMClient) Close() error {
 	return nil

@@ -1069,9 +1069,10 @@ func TestProcess_InterfaceCompliance(t *testing.T) {
 // --- Mock extractor ---
 
 type mockExtractor struct {
-	extractFunc func(ctx context.Context, req extract.ExtractRequest) (*extract.ExtractResult, error)
-	closed      bool
-	mu          sync.Mutex
+	extractFunc   func(ctx context.Context, req extract.ExtractRequest) (*extract.ExtractResult, error)
+	summarizeFunc func(ctx context.Context, req extract.SummarizeRequest) (*extract.SummarizeResult, error)
+	closed        bool
+	mu            sync.Mutex
 }
 
 func (m *mockExtractor) Extract(ctx context.Context, req extract.ExtractRequest) (*extract.ExtractResult, error) {
@@ -1082,6 +1083,17 @@ func (m *mockExtractor) Extract(ctx context.Context, req extract.ExtractRequest)
 		Content:       req.Content,
 		OriginalSize:  len(req.Content),
 		ExtractedSize: len(req.Content),
+	}, nil
+}
+
+func (m *mockExtractor) Summarize(ctx context.Context, req extract.SummarizeRequest) (*extract.SummarizeResult, error) {
+	if m.summarizeFunc != nil {
+		return m.summarizeFunc(ctx, req)
+	}
+	return &extract.SummarizeResult{
+		Summary:      "mock summary",
+		OriginalSize: len(req.Content),
+		SummarySize:  len("mock summary"),
 	}, nil
 }
 
@@ -1341,4 +1353,71 @@ func TestClose_WithExtractor(t *testing.T) {
 	if !streamer.isClosed() {
 		t.Error("expected streamer to be closed")
 	}
+}
+
+// --- Summarization pipeline tests ---
+
+func TestSummarize_DelegatesToExtractor(t *testing.T) {
+	summarizeCalled := false
+	extractor := &mockExtractor{
+		summarizeFunc: func(ctx context.Context, req extract.SummarizeRequest) (*extract.SummarizeResult, error) {
+			summarizeCalled = true
+			if string(req.Content) != "test content" {
+				t.Errorf("expected content 'test content', got %q", string(req.Content))
+			}
+			if req.Strategy != extract.StrategyMapReduce {
+				t.Errorf("expected map_reduce strategy, got %q", req.Strategy)
+			}
+			return &extract.SummarizeResult{
+				Summary:      "delegated summary",
+				OriginalSize: len(req.Content),
+				SummarySize:  len("delegated summary"),
+				SLMCalls:     1,
+			}, nil
+		},
+	}
+
+	p := NewProcessor(&mockScanner{},
+		WithExtractor(extractor),
+		WithConfig(&ProcessorConfig{
+			ServiceID:         "test-svc",
+			ExtractionTimeout: 5 * time.Second,
+		}),
+	)
+
+	result, err := p.Summarize(context.Background(), SummarizeRequest{
+		Content:   []byte("test content"),
+		Strategy:  extract.StrategyMapReduce,
+		MaxLength: 200,
+		TenantID:  "tenant-1",
+		RequestID: "req-sum-1",
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !summarizeCalled {
+		t.Error("expected extractor.Summarize to be called")
+	}
+	if result.Summary != "delegated summary" {
+		t.Errorf("expected 'delegated summary', got %q", result.Summary)
+	}
+}
+
+func TestSummarize_NoExtractor_ReturnsError(t *testing.T) {
+	p := NewProcessor(&mockScanner{})
+
+	_, err := p.Summarize(context.Background(), SummarizeRequest{
+		Content:   []byte("test content"),
+		Strategy:  extract.StrategyMapReduce,
+		MaxLength: 200,
+	})
+
+	if err == nil {
+		t.Fatal("expected error when no extractor configured")
+	}
+}
+
+func TestSummarize_InterfaceCompliance(t *testing.T) {
+	var _ Processor = (*defaultProcessor)(nil)
 }

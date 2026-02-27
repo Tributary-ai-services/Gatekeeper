@@ -44,6 +44,10 @@ func (m *mockProcessor) Verify(attestation types.Attestation) (bool, error) {
 	return true, nil
 }
 
+func (m *mockProcessor) Summarize(ctx context.Context, req pipeline.SummarizeRequest) (*pipeline.SummarizeResult, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
 func (m *mockProcessor) Close() error {
 	return nil
 }

@@ -6,10 +6,45 @@ import (
 	"time"
 )
 
+// SummarizeStrategy defines the summarization approach
+type SummarizeStrategy string
+
+const (
+	// StrategyMapReduce chunks content, summarizes each chunk, then merges summaries
+	StrategyMapReduce SummarizeStrategy = "map_reduce"
+	// StrategyEmbedThenSummarize uses embedding to select relevant chunks, then summarizes
+	StrategyEmbedThenSummarize SummarizeStrategy = "embed_then_summarize"
+)
+
+// SummarizeRequest contains inputs for summarization
+type SummarizeRequest struct {
+	Content     []byte            `json:"content"`
+	Query       string            `json:"query,omitempty"`    // Optional for map-reduce, required for embed strategy
+	Strategy    SummarizeStrategy `json:"strategy"`
+	MaxLength   int               `json:"max_length"`         // Max summary length in characters
+	ContentType string            `json:"content_type"`       // "text", "json", "markdown"
+}
+
+// SummarizeResult contains summarization output
+type SummarizeResult struct {
+	Summary         string        `json:"summary"`
+	OriginalSize    int           `json:"original_size"`
+	SummarySize     int           `json:"summary_size"`
+	ReductionRatio  float64       `json:"reduction_ratio"`
+	ChunksProcessed int           `json:"chunks_processed"`
+	SLMCalls        int           `json:"slm_calls"`
+	ProcessingTime  time.Duration `json:"processing_time"`
+	EmbeddingTime   time.Duration `json:"embedding_time,omitempty"`
+	SLMTime         time.Duration `json:"slm_time"`
+}
+
 // Extractor reduces content to relevant portions before scanning
 type Extractor interface {
 	// Extract reduces content to portions relevant to the query
 	Extract(ctx context.Context, req ExtractRequest) (*ExtractResult, error)
+
+	// Summarize produces a summary of the content using the specified strategy
+	Summarize(ctx context.Context, req SummarizeRequest) (*SummarizeResult, error)
 
 	// Close releases resources
 	Close() error
@@ -77,6 +112,9 @@ type SLMClient interface {
 	// Summarize uses the SLM to summarize content
 	Summarize(ctx context.Context, content string, maxLength int) (string, error)
 
+	// SummarizeMerge merges multiple chunk summaries into a single coherent summary
+	SummarizeMerge(ctx context.Context, summaries []string, query string, maxLength int) (string, error)
+
 	// Close releases resources
 	Close() error
 }
@@ -117,6 +155,10 @@ type ExtractorConfig struct {
 	RelevanceThreshold float64 `json:"relevance_threshold"`  // Min similarity to keep chunk
 	TopKChunks         int     `json:"top_k_chunks"`         // Max chunks to keep
 	TopKRatio          float64 `json:"top_k_ratio"`          // Ratio of chunks to keep
+
+	// Summarization settings
+	SummarizeChunkSize int `json:"summarize_chunk_size"` // Chunk size for summarization (larger than extraction)
+	MaxSummaryLength   int `json:"max_summary_length"`   // Default max summary length in chars
 
 	// Timeouts
 	Timeout time.Duration `json:"timeout"`
@@ -161,6 +203,8 @@ func DefaultExtractorConfig() *ExtractorConfig {
 		RelevanceThreshold: 0.3,
 		TopKChunks:         100,
 		TopKRatio:          0.3,
+		SummarizeChunkSize: 2048,
+		MaxSummaryLength:   1024,
 		Timeout:            30 * time.Second,
 	}
 }
@@ -175,3 +219,20 @@ Content:
 {{.Content}}
 
 Relevant information:`
+
+// SummarizationPrompt is the prompt for summarizing a single chunk of content.
+const SummarizationPrompt = `Summarize the following content concisely in no more than %d characters.%s
+
+Content:
+%s
+
+Summary:`
+
+// MergePrompt is the prompt for merging multiple chunk summaries into one.
+const MergePrompt = `Combine the following summaries into a single coherent summary of no more than %d characters.%s
+Preserve key information and remove redundancy.
+
+Summaries:
+%s
+
+Combined summary:`

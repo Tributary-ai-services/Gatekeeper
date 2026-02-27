@@ -130,3 +130,15 @@ func (r *patternRegistry) GetEnabled(config *ScanConfig) []PatternMatcher {
 	}
 	return result
 }
+
+// CollectDescriptors gathers PatternDescriptors from all registered matchers.
+func (r *patternRegistry) CollectDescriptors() []PatternDescriptor {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var all []PatternDescriptor
+	for _, matcher := range r.matchers {
+		all = append(all, matcher.GetPatternDescriptors()...)
+	}
+	return all
+}

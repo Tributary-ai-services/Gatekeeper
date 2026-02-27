@@ -44,7 +44,7 @@ This is **Gatekeeper** (also known as `tas-contentintel`) - a unified content sc
 
 ### Core Technologies
 - **Language**: Go 1.21+
-- **Pattern Matching**: Hyperscan (Intel high-performance regex library)
+- **Pattern Matching**: Pluggable `MatchEngine` abstraction — Go regexp (default) or Hyperscan (build tag `hyperscan`)
 - **Caching**: Redis (attestation caching)
 - **Streaming**: Apache Kafka (findings and audit events)
 - **PII Tokenization**: Databunker
@@ -146,6 +146,15 @@ make docker-build
 
 # Run development dependencies (Redis, Kafka, Ollama)
 make dev-services
+
+# Build with Hyperscan engine (requires libhyperscan-dev)
+make build-hyperscan
+
+# Test with Hyperscan engine
+make test-hyperscan
+
+# Compare regexp vs Hyperscan benchmarks
+make benchmark-compare
 ```
 
 ### Code Generation

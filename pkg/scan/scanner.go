@@ -47,6 +47,12 @@ type PatternMatcher interface {
 
 	// IsEnabled checks if this matcher should be used given the config
 	IsEnabled(config *ScanConfig) bool
+
+	// GetPatternDescriptors returns descriptors for all regex patterns this matcher uses.
+	GetPatternDescriptors() []PatternDescriptor
+
+	// ValidateMatches applies post-regex validation on raw engine hits and returns final matches.
+	ValidateMatches(content string, rawHits []RawMatch, contextWindow int) []Match
 }
 
 // RedactionEngine handles redaction and tokenization of detected PII

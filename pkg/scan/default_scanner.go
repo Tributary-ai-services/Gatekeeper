@@ -18,6 +18,7 @@ type defaultScanner struct {
 	registry         PatternRegistry
 	classifier       Classifier
 	redactionEngine  RedactionEngine
+	matchEngine      MatchEngine
 	version          string
 	defaultConfig    *ScanConfig
 }
@@ -29,13 +30,15 @@ func NewScanner() Scanner {
 
 // NewScannerWithRegistry creates a scanner with a custom registry
 func NewScannerWithRegistry(registry PatternRegistry) Scanner {
-	return &defaultScanner{
+	s := &defaultScanner{
 		registry:        registry,
 		classifier:      NewClassifier(),
 		redactionEngine: NewRedactionEngine(),
 		version:         "1.0.0",
 		defaultConfig:   DefaultScanConfig(),
 	}
+	s.initMatchEngine()
+	return s
 }
 
 // NewScannerWithConfig creates a scanner with custom configuration
@@ -47,7 +50,26 @@ func NewScannerWithConfig(config *ScanConfig) Scanner {
 		version:         "1.0.0",
 		defaultConfig:   config,
 	}
+	s.initMatchEngine()
 	return s
+}
+
+// initMatchEngine collects descriptors from the registry and creates the match engine.
+func (s *defaultScanner) initMatchEngine() {
+	reg, ok := s.registry.(*patternRegistry)
+	if !ok {
+		return
+	}
+	descriptors := reg.CollectDescriptors()
+	if len(descriptors) == 0 {
+		return
+	}
+	engine, err := NewMatchEngine(descriptors)
+	if err != nil {
+		// Fall back to legacy per-matcher scanning if engine init fails
+		return
+	}
+	s.matchEngine = engine
 }
 
 // Scan scans byte content for PII, compliance violations, and injection attacks
@@ -99,49 +121,101 @@ func (s *defaultScanner) ScanString(ctx context.Context, content string, config 
 	highRiskCount := 0
 	totalRisk := 0.0
 
-	for _, matcher := range matchers {
-		// Check for context cancellation
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
+	if s.matchEngine != nil && useEngineForScanning() {
+		// Two-phase engine-based scan (used with Hyperscan for single-pass SIMD)
+		// Phase 1: Single-pass scan (only enabled matchers)
+		enabledIDs := make(map[string]bool, len(matchers))
+		for _, m := range matchers {
+			enabledIDs[m.GetID()] = true
 		}
+		rawHits := s.matchEngine.ScanMatchers(content, enabledIDs)
 
-		matches := matcher.Match(content)
-		for _, match := range matches {
-			// Calculate confidence
-			confidence := matcher.GetConfidenceScore(match.Value)
-			if confidence < config.MinConfidence {
+		// Phase 2: Per-matcher validation + finding creation
+		for _, matcher := range matchers {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			default:
+			}
+
+			hits := rawHits[matcher.GetID()]
+			if len(hits) == 0 {
 				continue
 			}
 
-			// Create finding
-			finding := s.createFinding(match, matcher, confidence, content, config)
+			matches := matcher.ValidateMatches(content, hits, config.ContextWindow)
+			for _, match := range matches {
+				confidence := matcher.GetConfidenceScore(match.Value)
+				if confidence < config.MinConfidence {
+					continue
+				}
 
-			// Classify into frameworks
-			classCtx := s.buildClassificationContext(config)
-			if matcher.GetType() == PatternTypeInjection {
-				finding.Frameworks = ClassifyInjection(&finding)
-			} else {
-				finding.Frameworks = s.classifier.Classify(&finding, classCtx)
-			}
+				finding := s.createFinding(match, matcher, confidence, content, config)
 
-			// Update severity based on framework matches
-			for _, fw := range finding.Frameworks {
-				if fw.Severity.Value() > finding.Severity.Value() {
-					finding.Severity = fw.Severity
+				classCtx := s.buildClassificationContext(config)
+				if matcher.GetType() == PatternTypeInjection {
+					finding.Frameworks = ClassifyInjection(&finding)
+				} else {
+					finding.Frameworks = s.classifier.Classify(&finding, classCtx)
+				}
+
+				for _, fw := range finding.Frameworks {
+					if fw.Severity.Value() > finding.Severity.Value() {
+						finding.Severity = fw.Severity
+					}
+				}
+
+				findings = append(findings, finding)
+
+				totalRisk += finding.Confidence * matcher.GetRiskBase()
+				if finding.Severity.Value() >= SeverityHigh.Value() {
+					highRiskCount++
+				}
+				if finding.Severity.Value() > maxSeverity.Value() {
+					maxSeverity = finding.Severity
 				}
 			}
-
-			findings = append(findings, finding)
-
-			// Track risk metrics
-			totalRisk += finding.Confidence * matcher.GetRiskBase()
-			if finding.Severity.Value() >= SeverityHigh.Value() {
-				highRiskCount++
+		}
+	} else {
+		// Legacy per-matcher scan (fallback)
+		for _, matcher := range matchers {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			default:
 			}
-			if finding.Severity.Value() > maxSeverity.Value() {
-				maxSeverity = finding.Severity
+
+			matches := matcher.Match(content)
+			for _, match := range matches {
+				confidence := matcher.GetConfidenceScore(match.Value)
+				if confidence < config.MinConfidence {
+					continue
+				}
+
+				finding := s.createFinding(match, matcher, confidence, content, config)
+
+				classCtx := s.buildClassificationContext(config)
+				if matcher.GetType() == PatternTypeInjection {
+					finding.Frameworks = ClassifyInjection(&finding)
+				} else {
+					finding.Frameworks = s.classifier.Classify(&finding, classCtx)
+				}
+
+				for _, fw := range finding.Frameworks {
+					if fw.Severity.Value() > finding.Severity.Value() {
+						finding.Severity = fw.Severity
+					}
+				}
+
+				findings = append(findings, finding)
+
+				totalRisk += finding.Confidence * matcher.GetRiskBase()
+				if finding.Severity.Value() >= SeverityHigh.Value() {
+					highRiskCount++
+				}
+				if finding.Severity.Value() > maxSeverity.Value() {
+					maxSeverity = finding.Severity
+				}
 			}
 		}
 	}

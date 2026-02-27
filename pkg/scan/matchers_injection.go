@@ -59,6 +59,40 @@ func NewSQLInjectionMatcher() *SQLInjectionMatcher {
 	return m
 }
 
+// GetPatternDescriptors returns one descriptor per SQL injection sub-pattern.
+func (m *SQLInjectionMatcher) GetPatternDescriptors() []PatternDescriptor {
+	descs := make([]PatternDescriptor, len(m.patterns))
+	for i, p := range m.patterns {
+		descs[i] = PatternDescriptor{
+			MatcherID:     m.id,
+			PatternIndex:  i,
+			Expression:    p.String(),
+			CaseSensitive: false,
+		}
+	}
+	return descs
+}
+
+// ValidateMatches applies pre-screen, converts raw hits, and deduplicates.
+func (m *SQLInjectionMatcher) ValidateMatches(content string, rawHits []RawMatch, contextWindow int) []Match {
+	lower := strings.ToLower(content)
+	found := false
+	for _, kw := range sqlKeywords {
+		if strings.Contains(lower, kw) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+	if contextWindow <= 0 {
+		contextWindow = 100
+	}
+	candidates := rawHitsToMatches(content, rawHits, contextWindow)
+	return m.deduplicateMatches(candidates)
+}
+
 // sqlKeywords are cheap pre-screen terms — if none are present, skip all regex.
 var sqlKeywords = []string{
 	"--", "/*", "union", "select", "insert", "update", "delete",
@@ -228,6 +262,40 @@ func NewXSSMatcher() *XSSMatcher {
 	return m
 }
 
+// GetPatternDescriptors returns one descriptor per XSS sub-pattern.
+func (m *XSSMatcher) GetPatternDescriptors() []PatternDescriptor {
+	descs := make([]PatternDescriptor, len(m.patterns))
+	for i, p := range m.patterns {
+		descs[i] = PatternDescriptor{
+			MatcherID:     m.id,
+			PatternIndex:  i,
+			Expression:    p.String(),
+			CaseSensitive: false,
+		}
+	}
+	return descs
+}
+
+// ValidateMatches applies pre-screen, converts raw hits, and deduplicates.
+func (m *XSSMatcher) ValidateMatches(content string, rawHits []RawMatch, contextWindow int) []Match {
+	lower := strings.ToLower(content)
+	found := false
+	for _, kw := range xssKeywords {
+		if strings.Contains(lower, kw) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+	if contextWindow <= 0 {
+		contextWindow = 100
+	}
+	candidates := rawHitsToMatches(content, rawHits, contextWindow)
+	return m.deduplicateMatches(candidates)
+}
+
 // xssKeywords are cheap pre-screen terms for XSS detection.
 var xssKeywords = []string{
 	"<script", "<iframe", "<embed", "<object", "<applet", "<meta",
@@ -392,6 +460,40 @@ func NewPromptInjectionMatcher() *PromptInjectionMatcher {
 	m.pattern = m.patterns[0]
 
 	return m
+}
+
+// GetPatternDescriptors returns one descriptor per prompt injection sub-pattern.
+func (m *PromptInjectionMatcher) GetPatternDescriptors() []PatternDescriptor {
+	descs := make([]PatternDescriptor, len(m.patterns))
+	for i, p := range m.patterns {
+		descs[i] = PatternDescriptor{
+			MatcherID:     m.id,
+			PatternIndex:  i,
+			Expression:    p.String(),
+			CaseSensitive: false,
+		}
+	}
+	return descs
+}
+
+// ValidateMatches applies pre-screen, converts raw hits, and deduplicates.
+func (m *PromptInjectionMatcher) ValidateMatches(content string, rawHits []RawMatch, contextWindow int) []Match {
+	lower := strings.ToLower(content)
+	found := false
+	for _, kw := range promptKeywords {
+		if strings.Contains(lower, kw) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+	if contextWindow <= 0 {
+		contextWindow = 100
+	}
+	candidates := rawHitsToMatches(content, rawHits, contextWindow)
+	return m.deduplicateMatches(candidates)
 }
 
 // promptKeywords are cheap pre-screen terms for prompt injection detection.

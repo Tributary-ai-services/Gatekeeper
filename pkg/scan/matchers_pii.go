@@ -80,6 +80,18 @@ func (m *SSNMatcher) isValidSSN(ssn string) bool {
 	return true
 }
 
+// ValidateMatches filters raw hits through SSN validation.
+func (m *SSNMatcher) ValidateMatches(content string, rawHits []RawMatch, contextWindow int) []Match {
+	candidates := rawHitsToMatches(content, rawHits, contextWindow)
+	valid := make([]Match, 0, len(candidates))
+	for _, match := range candidates {
+		if m.isValidSSN(match.Value) {
+			valid = append(valid, match)
+		}
+	}
+	return valid
+}
+
 // GetConfidenceScore returns confidence based on format
 func (m *SSNMatcher) GetConfidenceScore(match string) float64 {
 	// Higher confidence for properly formatted SSNs
@@ -157,6 +169,18 @@ func (m *CreditCardMatcher) isValidLuhn(cc string) bool {
 	}
 
 	return sum%10 == 0
+}
+
+// ValidateMatches filters raw hits through Luhn validation.
+func (m *CreditCardMatcher) ValidateMatches(content string, rawHits []RawMatch, contextWindow int) []Match {
+	candidates := rawHitsToMatches(content, rawHits, contextWindow)
+	valid := make([]Match, 0, len(candidates))
+	for _, match := range candidates {
+		if m.isValidLuhn(match.Value) {
+			valid = append(valid, match)
+		}
+	}
+	return valid
 }
 
 // GetConfidenceScore returns confidence based on card type
@@ -262,6 +286,19 @@ func (m *PhoneNumberMatcher) Match(content string) []Match {
 	return validMatches
 }
 
+// ValidateMatches filters raw hits by digit count.
+func (m *PhoneNumberMatcher) ValidateMatches(content string, rawHits []RawMatch, contextWindow int) []Match {
+	candidates := rawHitsToMatches(content, rawHits, contextWindow)
+	valid := make([]Match, 0, len(candidates))
+	for _, match := range candidates {
+		digits := countDigits(match.Value)
+		if digits >= 10 && digits <= 15 {
+			valid = append(valid, match)
+		}
+	}
+	return valid
+}
+
 // GetConfidenceScore returns confidence based on phone format
 func (m *PhoneNumberMatcher) GetConfidenceScore(match string) float64 {
 	// Properly formatted numbers get higher confidence
@@ -330,6 +367,18 @@ func (m *IPAddressMatcher) isExcludedIP(ip string) bool {
 		}
 	}
 	return false
+}
+
+// ValidateMatches filters out excluded IP addresses.
+func (m *IPAddressMatcher) ValidateMatches(content string, rawHits []RawMatch, contextWindow int) []Match {
+	candidates := rawHitsToMatches(content, rawHits, contextWindow)
+	valid := make([]Match, 0, len(candidates))
+	for _, match := range candidates {
+		if !m.isExcludedIP(match.Value) {
+			valid = append(valid, match)
+		}
+	}
+	return valid
 }
 
 // GetConfidenceScore returns confidence for IP addresses

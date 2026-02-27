@@ -47,6 +47,19 @@ func (m *PassportMatcher) Match(content string) []Match {
 	return enhancedMatches
 }
 
+// ValidateMatches enhances matches with context-aware confidence.
+func (m *PassportMatcher) ValidateMatches(content string, rawHits []RawMatch, contextWindow int) []Match {
+	candidates := rawHitsToMatches(content, rawHits, contextWindow)
+	for i := range candidates {
+		if m.contextPattern.MatchString(candidates[i].Context) {
+			candidates[i].Confidence = 0.95
+		} else {
+			candidates[i].Confidence = 0.70
+		}
+	}
+	return candidates
+}
+
 // GetConfidenceScore returns confidence based on context
 func (m *PassportMatcher) GetConfidenceScore(match string) float64 {
 	// When called with just the match value, check if the match itself
@@ -116,6 +129,19 @@ func (m *DriversLicenseMatcher) computeConfidence(value, context string) float64
 	return 0.70
 }
 
+// ValidateMatches filters matches by context keyword presence.
+func (m *DriversLicenseMatcher) ValidateMatches(content string, rawHits []RawMatch, contextWindow int) []Match {
+	candidates := rawHitsToMatches(content, rawHits, contextWindow)
+	valid := make([]Match, 0, len(candidates))
+	for _, match := range candidates {
+		if m.contextPattern.MatchString(match.Context) {
+			match.Confidence = m.computeConfidence(match.Value, match.Context)
+			valid = append(valid, match)
+		}
+	}
+	return valid
+}
+
 // GetConfidenceScore returns confidence based on format
 func (m *DriversLicenseMatcher) GetConfidenceScore(match string) float64 {
 	// Check state-specific formats
@@ -176,6 +202,15 @@ func (m *AddressMatcher) computeAddressConfidence(value string) float64 {
 		return 0.75
 	}
 	return 0.60
+}
+
+// ValidateMatches assigns confidence based on address completeness.
+func (m *AddressMatcher) ValidateMatches(content string, rawHits []RawMatch, contextWindow int) []Match {
+	candidates := rawHitsToMatches(content, rawHits, contextWindow)
+	for i := range candidates {
+		candidates[i].Confidence = m.computeAddressConfidence(candidates[i].Value)
+	}
+	return candidates
 }
 
 // GetConfidenceScore returns confidence based on address format
@@ -261,6 +296,39 @@ func (m *NameMatcher) computeNameConfidence(value string) float64 {
 	return 0.65
 }
 
+// ValidateMatches re-scans hit regions with Go regexp to extract capture groups.
+func (m *NameMatcher) ValidateMatches(content string, rawHits []RawMatch, contextWindow int) []Match {
+	if m.pattern == nil {
+		return nil
+	}
+	if contextWindow <= 0 {
+		contextWindow = 50
+	}
+	var matches []Match
+	for _, hit := range rawHits {
+		if hit.Start < 0 || hit.End > len(content) || hit.Start >= hit.End {
+			continue
+		}
+		region := content[hit.Start:hit.End]
+		indices := m.pattern.FindAllStringSubmatchIndex(region, -1)
+		for _, idx := range indices {
+			fullStart := hit.Start + idx[0]
+			fullEnd := hit.Start + idx[1]
+			fullValue := content[fullStart:fullEnd]
+			ctx := extractContext(content, fullStart, fullEnd, contextWindow)
+			confidence := m.computeNameConfidence(fullValue)
+			matches = append(matches, Match{
+				Value:      fullValue,
+				StartPos:   fullStart,
+				EndPos:     fullEnd,
+				Context:    ctx,
+				Confidence: confidence,
+			})
+		}
+	}
+	return matches
+}
+
 // GetConfidenceScore returns confidence based on name format
 func (m *NameMatcher) GetConfidenceScore(match string) float64 {
 	return m.computeNameConfidence(match)
@@ -333,6 +401,39 @@ func (m *MedicalRecordMatcher) computeMRNConfidence(value string) float64 {
 	}
 
 	return 0.90
+}
+
+// ValidateMatches re-scans hit regions with Go regexp to extract capture groups.
+func (m *MedicalRecordMatcher) ValidateMatches(content string, rawHits []RawMatch, contextWindow int) []Match {
+	if m.pattern == nil {
+		return nil
+	}
+	if contextWindow <= 0 {
+		contextWindow = 50
+	}
+	var matches []Match
+	for _, hit := range rawHits {
+		if hit.Start < 0 || hit.End > len(content) || hit.Start >= hit.End {
+			continue
+		}
+		region := content[hit.Start:hit.End]
+		indices := m.pattern.FindAllStringSubmatchIndex(region, -1)
+		for _, idx := range indices {
+			fullStart := hit.Start + idx[0]
+			fullEnd := hit.Start + idx[1]
+			fullValue := content[fullStart:fullEnd]
+			ctx := extractContext(content, fullStart, fullEnd, contextWindow)
+			confidence := m.computeMRNConfidence(fullValue)
+			matches = append(matches, Match{
+				Value:      fullValue,
+				StartPos:   fullStart,
+				EndPos:     fullEnd,
+				Context:    ctx,
+				Confidence: confidence,
+			})
+		}
+	}
+	return matches
 }
 
 // GetConfidenceScore returns confidence based on MRN format

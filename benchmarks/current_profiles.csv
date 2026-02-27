@@ -1,0 +1,4 @@
+size_kb,profile,ms,mb_per_sec,bytes_alloc,allocs
+100,pii_only,222.99,0.46,756484,3883
+100,injection_only,251.93,0.41,515457,1274
+100,full_redaction,478.97,0.21,19402093,6510

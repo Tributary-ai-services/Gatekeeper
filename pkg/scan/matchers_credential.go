@@ -110,6 +110,18 @@ func (m *AWSSecretKeyMatcher) isValidSecretKey(key string) bool {
 	return hasUpper && hasLower && hasDigit
 }
 
+// ValidateMatches filters raw hits through secret key validation.
+func (m *AWSSecretKeyMatcher) ValidateMatches(content string, rawHits []RawMatch, contextWindow int) []Match {
+	candidates := rawHitsToMatches(content, rawHits, contextWindow)
+	valid := make([]Match, 0, len(candidates))
+	for _, match := range candidates {
+		if m.isValidSecretKey(match.Value) {
+			valid = append(valid, match)
+		}
+	}
+	return valid
+}
+
 // GetConfidenceScore returns confidence for AWS secret keys
 func (m *AWSSecretKeyMatcher) GetConfidenceScore(match string) float64 {
 	lowerMatch := strings.ToLower(match)
@@ -260,6 +272,30 @@ func (m *APIKeyMatcher) isFalsePositive(value string) bool {
 	return false
 }
 
+// ValidateMatches filters raw hits through false positive check.
+func (m *APIKeyMatcher) ValidateMatches(content string, rawHits []RawMatch, contextWindow int) []Match {
+	// Pre-screen: if no API key keywords are present, return nothing
+	lower := strings.ToLower(content)
+	found := false
+	for _, kw := range apiKeyKeywords {
+		if strings.Contains(lower, kw) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+	candidates := rawHitsToMatches(content, rawHits, contextWindow)
+	valid := make([]Match, 0, len(candidates))
+	for _, match := range candidates {
+		if !m.isFalsePositive(match.Value) {
+			valid = append(valid, match)
+		}
+	}
+	return valid
+}
+
 // GetConfidenceScore returns confidence based on key type
 func (m *APIKeyMatcher) GetConfidenceScore(match string) float64 {
 	// Known service prefixes have high confidence
@@ -391,6 +427,29 @@ func NewAzureCredentialMatcher() *AzureCredentialMatcher {
 	}
 }
 
+// GetPatternDescriptors returns descriptors for all Azure credential patterns.
+func (m *AzureCredentialMatcher) GetPatternDescriptors() []PatternDescriptor {
+	descs := m.baseMatcher.GetPatternDescriptors() // index 0: main pattern
+	descs = append(descs, PatternDescriptor{
+		MatcherID:    m.id,
+		PatternIndex: 1,
+		Expression:   m.connStringPattern.String(),
+	})
+	descs = append(descs, PatternDescriptor{
+		MatcherID:     m.id,
+		PatternIndex:  2,
+		Expression:    m.sasTokenPattern.String(),
+		CaseSensitive: false,
+	})
+	return descs
+}
+
+// ValidateMatches deduplicates raw hits.
+func (m *AzureCredentialMatcher) ValidateMatches(content string, rawHits []RawMatch, contextWindow int) []Match {
+	candidates := rawHitsToMatches(content, rawHits, contextWindow)
+	return deduplicateMatches(candidates)
+}
+
 // Match finds all Azure credential matches in content
 func (m *AzureCredentialMatcher) Match(content string) []Match {
 	var allMatches []Match
@@ -473,6 +532,18 @@ func NewGCPKeyMatcher() *GCPKeyMatcher {
 			`(?s)"type"\s*:\s*"service_account".*?"private_key"\s*:\s*"-----BEGIN`,
 		),
 	}
+}
+
+// GetPatternDescriptors returns descriptors for all GCP patterns.
+func (m *GCPKeyMatcher) GetPatternDescriptors() []PatternDescriptor {
+	descs := m.baseMatcher.GetPatternDescriptors() // index 0: main pattern
+	descs = append(descs, PatternDescriptor{
+		MatcherID:    m.id,
+		PatternIndex: 1,
+		Expression:   m.serviceAccountPattern.String(),
+		DotAll:       true,
+	})
+	return descs
 }
 
 // Match finds all GCP key matches in content
@@ -642,6 +713,29 @@ func (m *OAuthCredentialMatcher) isFalsePositive(value string) bool {
 	return false
 }
 
+// ValidateMatches filters raw hits through pre-screen and false positive check.
+func (m *OAuthCredentialMatcher) ValidateMatches(content string, rawHits []RawMatch, contextWindow int) []Match {
+	lower := strings.ToLower(content)
+	found := false
+	for _, kw := range oauthKeywords {
+		if strings.Contains(lower, kw) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+	candidates := rawHitsToMatches(content, rawHits, contextWindow)
+	valid := make([]Match, 0, len(candidates))
+	for _, match := range candidates {
+		if !m.isFalsePositive(match.Value) {
+			valid = append(valid, match)
+		}
+	}
+	return valid
+}
+
 // GetConfidenceScore returns confidence for OAuth credentials
 func (m *OAuthCredentialMatcher) GetConfidenceScore(match string) float64 {
 	lowerMatch := strings.ToLower(match)
@@ -693,6 +787,18 @@ func NewConnectionStringMatcher() *ConnectionStringMatcher {
 			`(?i)jdbc:[a-z]+://[^\s]+(?:password|pwd)\s*=\s*[^\s;&]+`,
 		),
 	}
+}
+
+// GetPatternDescriptors returns descriptors for all connection string patterns.
+func (m *ConnectionStringMatcher) GetPatternDescriptors() []PatternDescriptor {
+	descs := m.baseMatcher.GetPatternDescriptors() // index 0: main URI pattern
+	descs = append(descs, PatternDescriptor{
+		MatcherID:     m.id,
+		PatternIndex:  1,
+		Expression:    m.jdbcPattern.String(),
+		CaseSensitive: false,
+	})
+	return descs
 }
 
 // Match finds all connection string matches in content

@@ -7,6 +7,7 @@ import (
 
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/action"
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/attest"
+	"github.com/Tributary-ai-services/Gatekeeper/pkg/extract"
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/scan"
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/stream"
 )
@@ -14,11 +15,12 @@ import (
 // defaultProcessor implements the Processor interface, orchestrating
 // the scan -> attest -> action -> stream pipeline.
 type defaultProcessor struct {
-	scanner  scan.Scanner
-	attestor attest.Attestor
-	engine   action.Engine
-	streamer stream.Streamer
-	config   *ProcessorConfig
+	scanner   scan.Scanner
+	attestor  attest.Attestor
+	engine    action.Engine
+	streamer  stream.Streamer
+	extractor extract.Extractor
+	config    *ProcessorConfig
 }
 
 // ProcessorOption is a functional option for configuring a defaultProcessor.
@@ -42,6 +44,13 @@ func WithActionEngine(e action.Engine) ProcessorOption {
 func WithStreamer(s stream.Streamer) ProcessorOption {
 	return func(p *defaultProcessor) {
 		p.streamer = s
+	}
+}
+
+// WithExtractor sets the extractor on the processor.
+func WithExtractor(e extract.Extractor) ProcessorOption {
+	return func(p *defaultProcessor) {
+		p.extractor = e
 	}
 }
 
@@ -97,7 +106,38 @@ func (p *defaultProcessor) Process(ctx context.Context, req ProcessRequest) (*Pr
 		}
 	}
 
-	// Step 2: Build ScanConfig from request
+	// Step 2: Extract relevant content if enabled and content is large enough
+	contentToScan := req.Content
+	if p.config.EnableExtraction && p.extractor != nil && !req.SkipExtraction &&
+		len(req.Content) > p.config.ExtractionThreshold {
+		extractStart := time.Now()
+
+		var extractCtx context.Context
+		var extractCancel context.CancelFunc
+		if p.config.ExtractionTimeout > 0 {
+			extractCtx, extractCancel = context.WithTimeout(ctx, p.config.ExtractionTimeout)
+		} else {
+			extractCtx, extractCancel = context.WithCancel(ctx)
+		}
+
+		extractResult, extractErr := p.extractor.Extract(extractCtx, extract.ExtractRequest{
+			Content:     req.Content,
+			Query:       req.QueryContext,
+			ContentType: req.ContentType,
+		})
+		extractCancel()
+
+		if extractErr == nil && extractResult != nil && len(extractResult.Content) > 0 {
+			contentToScan = extractResult.Content
+			result.ExtractedContent = extractResult.Content
+			result.Metrics.ExtractedSize = extractResult.ExtractedSize
+			result.Metrics.ExtractionRatio = extractResult.ReductionRatio
+		}
+		// On extraction error, we scan original content (graceful degradation)
+		result.Metrics.ExtractionDuration = time.Since(extractStart)
+	}
+
+	// Step 3: Build ScanConfig from request
 	scanConfig := &scan.ScanConfig{
 		Profile:   req.ScanProfile,
 		TrustTier: req.TrustTier,
@@ -106,7 +146,7 @@ func (p *defaultProcessor) Process(ctx context.Context, req ProcessRequest) (*Pr
 		scanConfig.Timeout = p.config.ScanTimeout
 	}
 
-	// Step 3: Scan content
+	// Step 4: Scan content
 	scanStart := time.Now()
 
 	var scanCtx context.Context
@@ -118,7 +158,7 @@ func (p *defaultProcessor) Process(ctx context.Context, req ProcessRequest) (*Pr
 	}
 	defer scanCancel()
 
-	scanResult, err := p.scanner.Scan(scanCtx, req.Content, scanConfig)
+	scanResult, err := p.scanner.Scan(scanCtx, contentToScan, scanConfig)
 	if err != nil {
 		return nil, fmt.Errorf("scan failed: %w", err)
 	}
@@ -127,7 +167,7 @@ func (p *defaultProcessor) Process(ctx context.Context, req ProcessRequest) (*Pr
 	result.Metrics.ScanDuration = time.Since(scanStart)
 	result.Metrics.FindingsCount = len(scanResult.Findings)
 
-	// Step 4: Evaluate and execute actions if findings exist and actions are enabled
+	// Step 5: Evaluate and execute actions if findings exist and actions are enabled
 	if p.config.EnableActions && p.engine != nil && len(scanResult.Findings) > 0 {
 		actionStart := time.Now()
 
@@ -162,7 +202,7 @@ func (p *defaultProcessor) Process(ctx context.Context, req ProcessRequest) (*Pr
 		result.Metrics.ActionDuration = time.Since(actionStart)
 	}
 
-	// Step 5: Create attestation if enabled
+	// Step 6: Create attestation if enabled
 	if p.config.EnableAttestation && p.attestor != nil {
 		attestStart := time.Now()
 
@@ -183,7 +223,7 @@ func (p *defaultProcessor) Process(ctx context.Context, req ProcessRequest) (*Pr
 		result.Metrics.AttestDuration = time.Since(attestStart)
 	}
 
-	// Step 6: Stream findings asynchronously if enabled and not skipped
+	// Step 7: Stream findings asynchronously if enabled and not skipped
 	if p.config.EnableStreaming && p.streamer != nil && !req.SkipStreaming && len(scanResult.Findings) > 0 {
 		streamFindings := make([]stream.Finding, len(scanResult.Findings))
 		for i := range scanResult.Findings {
@@ -204,10 +244,34 @@ func (p *defaultProcessor) Process(ctx context.Context, req ProcessRequest) (*Pr
 		}()
 	}
 
-	// Step 7: Set total duration
+	// Step 8: Set total duration
 	result.Metrics.TotalDuration = time.Since(startTime)
 
 	return result, nil
+}
+
+// Summarize produces a summary of content using the configured extractor.
+func (p *defaultProcessor) Summarize(ctx context.Context, req SummarizeRequest) (*SummarizeResult, error) {
+	if p.extractor == nil {
+		return nil, fmt.Errorf("no extractor configured for summarization")
+	}
+
+	var summarizeCtx context.Context
+	var summarizeCancel context.CancelFunc
+	if p.config.ExtractionTimeout > 0 {
+		summarizeCtx, summarizeCancel = context.WithTimeout(ctx, p.config.ExtractionTimeout)
+	} else {
+		summarizeCtx, summarizeCancel = context.WithCancel(ctx)
+	}
+	defer summarizeCancel()
+
+	return p.extractor.Summarize(summarizeCtx, extract.SummarizeRequest{
+		Content:     req.Content,
+		Query:       req.Query,
+		Strategy:    req.Strategy,
+		MaxLength:   req.MaxLength,
+		ContentType: req.ContentType,
+	})
 }
 
 // ScanOnly performs scanning without attestation or actions.
@@ -230,6 +294,11 @@ func (p *defaultProcessor) Verify(attestation Attestation) (bool, error) {
 // Close releases resources held by the processor's sub-components.
 func (p *defaultProcessor) Close() error {
 	var errs []error
+	if p.extractor != nil {
+		if err := p.extractor.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("extractor close: %w", err))
+		}
+	}
 	if p.engine != nil {
 		if err := p.engine.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("engine close: %w", err))

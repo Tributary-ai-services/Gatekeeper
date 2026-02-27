@@ -1,0 +1,6 @@
+profile,size_kb,current_ms,projected_ms,speedup
+full_clean,100,162.20,0.13,1247.7
+full_mixed,100,498.48,15.00,33.2
+pii_only,100,228.41,12.00,19.0
+injection_only,100,480.49,3.00,160.2
+full_redaction,100,632.30,18.00,35.1

@@ -1,0 +1,9 @@
+size_kb,content_type,current_ms,projected_ms,speedup,notes
+2,clean,2.67,0.05,53.4,scan_pass=0.001ms+post_match=0.05ms
+10,clean,15.84,0.06,264.0,scan_pass=0.005ms+post_match=0.05ms
+25,clean,37.48,0.07,535.4,scan_pass=0.012ms+post_match=0.06ms
+100,clean,162.20,0.13,1247.7,scan_pass=0.049ms+post_match=0.08ms
+2,mixed,6.28,0.30,20.9,scan_pass=0.001ms+post_match=0.30ms
+10,mixed,55.84,1.50,37.2,scan_pass=0.005ms+post_match=1.50ms
+25,mixed,143.67,3.80,37.8,scan_pass=0.012ms+post_match=3.80ms
+100,mixed,498.48,15.00,33.2,scan_pass=0.049ms+post_match=15.00ms

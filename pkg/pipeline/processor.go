@@ -5,6 +5,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/Tributary-ai-services/Gatekeeper/pkg/extract"
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/scan"
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/types"
 )
@@ -24,6 +25,9 @@ type Processor interface {
 
 	// ScanOnly performs scanning without extraction or attestation
 	ScanOnly(ctx context.Context, content []byte, config *scan.ScanConfig) (*scan.ScanResult, error)
+
+	// Summarize produces a summary of content (standalone, not part of scan pipeline)
+	Summarize(ctx context.Context, req SummarizeRequest) (*SummarizeResult, error)
 
 	// Verify verifies an attestation is valid
 	Verify(attestation Attestation) (bool, error)
@@ -82,6 +86,20 @@ type ProcessResult struct {
 	// Performance metrics
 	Metrics ProcessMetrics `json:"metrics"`
 }
+
+// SummarizeRequest contains inputs for content summarization at the pipeline level
+type SummarizeRequest struct {
+	Content     []byte                   `json:"content"`
+	Query       string                   `json:"query,omitempty"`
+	Strategy    extract.SummarizeStrategy `json:"strategy"`
+	MaxLength   int                      `json:"max_length"`
+	ContentType string                   `json:"content_type"`
+	TenantID    string                   `json:"tenant_id"`
+	RequestID   string                   `json:"request_id"`
+}
+
+// SummarizeResult wraps the extraction-level summarize result at the pipeline level
+type SummarizeResult = extract.SummarizeResult
 
 // ProcessorConfig configures the processor
 type ProcessorConfig struct {

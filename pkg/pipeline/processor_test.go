@@ -9,6 +9,7 @@ import (
 
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/action"
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/attest"
+	"github.com/Tributary-ai-services/Gatekeeper/pkg/extract"
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/scan"
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/stream"
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/types"
@@ -1062,5 +1063,361 @@ func TestProcess_ActionEvaluateError(t *testing.T) {
 
 func TestProcess_InterfaceCompliance(t *testing.T) {
 	// Verify that defaultProcessor implements Processor interface
+	var _ Processor = (*defaultProcessor)(nil)
+}
+
+// --- Mock extractor ---
+
+type mockExtractor struct {
+	extractFunc   func(ctx context.Context, req extract.ExtractRequest) (*extract.ExtractResult, error)
+	summarizeFunc func(ctx context.Context, req extract.SummarizeRequest) (*extract.SummarizeResult, error)
+	closed        bool
+	mu            sync.Mutex
+}
+
+func (m *mockExtractor) Extract(ctx context.Context, req extract.ExtractRequest) (*extract.ExtractResult, error) {
+	if m.extractFunc != nil {
+		return m.extractFunc(ctx, req)
+	}
+	return &extract.ExtractResult{
+		Content:       req.Content,
+		OriginalSize:  len(req.Content),
+		ExtractedSize: len(req.Content),
+	}, nil
+}
+
+func (m *mockExtractor) Summarize(ctx context.Context, req extract.SummarizeRequest) (*extract.SummarizeResult, error) {
+	if m.summarizeFunc != nil {
+		return m.summarizeFunc(ctx, req)
+	}
+	return &extract.SummarizeResult{
+		Summary:      "mock summary",
+		OriginalSize: len(req.Content),
+		SummarySize:  len("mock summary"),
+	}, nil
+}
+
+func (m *mockExtractor) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.closed = true
+	return nil
+}
+
+func (m *mockExtractor) isClosed() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.closed
+}
+
+// --- Extraction integration tests ---
+
+func TestProcess_ExtractionEnabled_LargeContent(t *testing.T) {
+	// Create content larger than extraction threshold
+	largeContent := make([]byte, 64*1024) // 64KB
+	for i := range largeContent {
+		largeContent[i] = byte('a' + i%26)
+	}
+
+	extractedContent := []byte("extracted relevant portion")
+
+	extractCalled := false
+	extractor := &mockExtractor{
+		extractFunc: func(ctx context.Context, req extract.ExtractRequest) (*extract.ExtractResult, error) {
+			extractCalled = true
+			if req.Query != "find something" {
+				t.Errorf("expected query 'find something', got %q", req.Query)
+			}
+			return &extract.ExtractResult{
+				Content:       extractedContent,
+				OriginalSize:  len(req.Content),
+				ExtractedSize: len(extractedContent),
+				ReductionRatio: 1 - float64(len(extractedContent))/float64(len(req.Content)),
+			}, nil
+		},
+	}
+
+	var scannedContent []byte
+	scanner := &mockScanner{
+		scanFunc: func(ctx context.Context, content []byte, config *scan.ScanConfig) (*scan.ScanResult, error) {
+			scannedContent = content
+			return makeScanResultWithFindings(nil), nil
+		},
+	}
+
+	p := NewProcessor(scanner,
+		WithExtractor(extractor),
+		WithConfig(&ProcessorConfig{
+			ServiceID:           "test-svc",
+			EnableExtraction:    true,
+			ExtractionThreshold: 32 * 1024, // 32KB
+			ExtractionTimeout:   5 * time.Second,
+		}),
+	)
+
+	result, err := p.Process(context.Background(), ProcessRequest{
+		Content:      largeContent,
+		QueryContext: "find something",
+		TrustTier:    scan.TierExternal,
+		ScanProfile:  scan.ProfileFull,
+		TenantID:     "tenant-1",
+		RequestID:    "req-ext-1",
+		ContentType:  "document",
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !extractCalled {
+		t.Error("expected extractor to be called for large content")
+	}
+	if string(scannedContent) != string(extractedContent) {
+		t.Error("expected scanner to receive extracted content")
+	}
+	if result.ExtractedContent == nil {
+		t.Error("expected extracted content in result")
+	}
+	if result.Metrics.ExtractionDuration == 0 {
+		t.Error("expected extraction duration > 0")
+	}
+	if result.Metrics.ExtractedSize != len(extractedContent) {
+		t.Errorf("expected extracted size %d, got %d", len(extractedContent), result.Metrics.ExtractedSize)
+	}
+}
+
+func TestProcess_ExtractionSkipped_BelowThreshold(t *testing.T) {
+	smallContent := []byte("small content below threshold")
+
+	extractCalled := false
+	extractor := &mockExtractor{
+		extractFunc: func(ctx context.Context, req extract.ExtractRequest) (*extract.ExtractResult, error) {
+			extractCalled = true
+			return nil, nil
+		},
+	}
+
+	scanner := &mockScanner{
+		scanFunc: func(ctx context.Context, content []byte, config *scan.ScanConfig) (*scan.ScanResult, error) {
+			return makeScanResultWithFindings(nil), nil
+		},
+	}
+
+	p := NewProcessor(scanner,
+		WithExtractor(extractor),
+		WithConfig(&ProcessorConfig{
+			ServiceID:           "test-svc",
+			EnableExtraction:    true,
+			ExtractionThreshold: 32 * 1024, // 32KB — content is smaller
+		}),
+	)
+
+	_, err := p.Process(context.Background(), ProcessRequest{
+		Content:      smallContent,
+		QueryContext: "test",
+		TrustTier:    scan.TierExternal,
+		ScanProfile:  scan.ProfileFull,
+		TenantID:     "tenant-1",
+		RequestID:    "req-ext-2",
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if extractCalled {
+		t.Error("extractor should NOT be called for content below threshold")
+	}
+}
+
+func TestProcess_ExtractionError_FallbackToOriginal(t *testing.T) {
+	largeContent := make([]byte, 64*1024)
+	for i := range largeContent {
+		largeContent[i] = byte('a' + i%26)
+	}
+
+	extractor := &mockExtractor{
+		extractFunc: func(ctx context.Context, req extract.ExtractRequest) (*extract.ExtractResult, error) {
+			return nil, fmt.Errorf("extraction service unavailable")
+		},
+	}
+
+	var scannedContent []byte
+	scanner := &mockScanner{
+		scanFunc: func(ctx context.Context, content []byte, config *scan.ScanConfig) (*scan.ScanResult, error) {
+			scannedContent = content
+			return makeScanResultWithFindings(nil), nil
+		},
+	}
+
+	p := NewProcessor(scanner,
+		WithExtractor(extractor),
+		WithConfig(&ProcessorConfig{
+			ServiceID:           "test-svc",
+			EnableExtraction:    true,
+			ExtractionThreshold: 32 * 1024,
+			ExtractionTimeout:   5 * time.Second,
+		}),
+	)
+
+	result, err := p.Process(context.Background(), ProcessRequest{
+		Content:      largeContent,
+		QueryContext: "test",
+		TrustTier:    scan.TierExternal,
+		ScanProfile:  scan.ProfileFull,
+		TenantID:     "tenant-1",
+		RequestID:    "req-ext-3",
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Scanner should receive original content on extraction failure
+	if string(scannedContent) != string(largeContent) {
+		t.Error("expected scanner to receive original content on extraction error")
+	}
+	if result.ExtractedContent != nil {
+		t.Error("expected no extracted content on extraction error")
+	}
+	if result.Metrics.ExtractionDuration == 0 {
+		t.Error("expected extraction duration to be recorded even on error")
+	}
+}
+
+func TestProcess_SkipExtraction_Flag(t *testing.T) {
+	largeContent := make([]byte, 64*1024)
+	for i := range largeContent {
+		largeContent[i] = 'x'
+	}
+
+	extractCalled := false
+	extractor := &mockExtractor{
+		extractFunc: func(ctx context.Context, req extract.ExtractRequest) (*extract.ExtractResult, error) {
+			extractCalled = true
+			return nil, nil
+		},
+	}
+
+	scanner := &mockScanner{
+		scanFunc: func(ctx context.Context, content []byte, config *scan.ScanConfig) (*scan.ScanResult, error) {
+			return makeScanResultWithFindings(nil), nil
+		},
+	}
+
+	p := NewProcessor(scanner,
+		WithExtractor(extractor),
+		WithConfig(&ProcessorConfig{
+			ServiceID:           "test-svc",
+			EnableExtraction:    true,
+			ExtractionThreshold: 32 * 1024,
+		}),
+	)
+
+	_, err := p.Process(context.Background(), ProcessRequest{
+		Content:        largeContent,
+		QueryContext:   "test",
+		TrustTier:      scan.TierExternal,
+		ScanProfile:    scan.ProfileFull,
+		TenantID:       "tenant-1",
+		RequestID:      "req-ext-4",
+		SkipExtraction: true, // Explicitly skip
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if extractCalled {
+		t.Error("extractor should NOT be called when SkipExtraction is true")
+	}
+}
+
+func TestClose_WithExtractor(t *testing.T) {
+	extractor := &mockExtractor{}
+	engine := &mockEngine{}
+	streamer := &mockStreamer{}
+
+	p := NewProcessor(&mockScanner{},
+		WithExtractor(extractor),
+		WithActionEngine(engine),
+		WithStreamer(streamer),
+	)
+
+	err := p.Close()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !extractor.isClosed() {
+		t.Error("expected extractor to be closed")
+	}
+	if !engine.isClosed() {
+		t.Error("expected engine to be closed")
+	}
+	if !streamer.isClosed() {
+		t.Error("expected streamer to be closed")
+	}
+}
+
+// --- Summarization pipeline tests ---
+
+func TestSummarize_DelegatesToExtractor(t *testing.T) {
+	summarizeCalled := false
+	extractor := &mockExtractor{
+		summarizeFunc: func(ctx context.Context, req extract.SummarizeRequest) (*extract.SummarizeResult, error) {
+			summarizeCalled = true
+			if string(req.Content) != "test content" {
+				t.Errorf("expected content 'test content', got %q", string(req.Content))
+			}
+			if req.Strategy != extract.StrategyMapReduce {
+				t.Errorf("expected map_reduce strategy, got %q", req.Strategy)
+			}
+			return &extract.SummarizeResult{
+				Summary:      "delegated summary",
+				OriginalSize: len(req.Content),
+				SummarySize:  len("delegated summary"),
+				SLMCalls:     1,
+			}, nil
+		},
+	}
+
+	p := NewProcessor(&mockScanner{},
+		WithExtractor(extractor),
+		WithConfig(&ProcessorConfig{
+			ServiceID:         "test-svc",
+			ExtractionTimeout: 5 * time.Second,
+		}),
+	)
+
+	result, err := p.Summarize(context.Background(), SummarizeRequest{
+		Content:   []byte("test content"),
+		Strategy:  extract.StrategyMapReduce,
+		MaxLength: 200,
+		TenantID:  "tenant-1",
+		RequestID: "req-sum-1",
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !summarizeCalled {
+		t.Error("expected extractor.Summarize to be called")
+	}
+	if result.Summary != "delegated summary" {
+		t.Errorf("expected 'delegated summary', got %q", result.Summary)
+	}
+}
+
+func TestSummarize_NoExtractor_ReturnsError(t *testing.T) {
+	p := NewProcessor(&mockScanner{})
+
+	_, err := p.Summarize(context.Background(), SummarizeRequest{
+		Content:   []byte("test content"),
+		Strategy:  extract.StrategyMapReduce,
+		MaxLength: 200,
+	})
+
+	if err == nil {
+		t.Fatal("expected error when no extractor configured")
+	}
+}
+
+func TestSummarize_InterfaceCompliance(t *testing.T) {
 	var _ Processor = (*defaultProcessor)(nil)
 }

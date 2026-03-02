@@ -121,6 +121,10 @@ type ProcessorConfig struct {
 	AttestationTTL      time.Duration `json:"attestation_ttl"`
 	SigningKeyName      string        `json:"signing_key_name"`
 
+	// Tokenization settings
+	EnableTokenization  bool           `json:"enable_tokenization"`
+	TokenizeTypes       []scan.PIIType `json:"tokenize_types"`
+
 	// Timeouts
 	ScanTimeout         time.Duration `json:"scan_timeout"`
 	ExtractionTimeout   time.Duration `json:"extraction_timeout"`
@@ -140,6 +144,14 @@ func DefaultProcessorConfig() *ProcessorConfig {
 		RelevanceThreshold:  0.3,
 		AttestationTTL:      5 * time.Minute,
 		SigningKeyName:      "tas-scan-signing-key",
+		TokenizeTypes: []scan.PIIType{
+			scan.PIITypeEmail,
+			scan.PIITypeSSN,
+			scan.PIITypeCreditCard,
+			scan.PIITypePhoneNumber,
+			scan.PIITypeMedicalRecordNumber,
+			scan.PIITypeBankAccount,
+		},
 		ScanTimeout:         30 * time.Second,
 		ExtractionTimeout:   30 * time.Second,
 		ActionTimeout:       10 * time.Second,

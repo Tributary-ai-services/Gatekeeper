@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/extract"
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/scan"
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/stream"
+	"github.com/Tributary-ai-services/Gatekeeper/pkg/tokenize"
 )
 
 // defaultProcessor implements the Processor interface, orchestrating
@@ -20,6 +22,7 @@ type defaultProcessor struct {
 	engine    action.Engine
 	streamer  stream.Streamer
 	extractor extract.Extractor
+	tokenizer tokenize.Tokenizer
 	config    *ProcessorConfig
 }
 
@@ -51,6 +54,13 @@ func WithStreamer(s stream.Streamer) ProcessorOption {
 func WithExtractor(e extract.Extractor) ProcessorOption {
 	return func(p *defaultProcessor) {
 		p.extractor = e
+	}
+}
+
+// WithTokenizer sets the tokenizer on the processor.
+func WithTokenizer(t tokenize.Tokenizer) ProcessorOption {
+	return func(p *defaultProcessor) {
+		p.tokenizer = t
 	}
 }
 
@@ -166,6 +176,14 @@ func (p *defaultProcessor) Process(ctx context.Context, req ProcessRequest) (*Pr
 	result.ScanResult = scanResult
 	result.Metrics.ScanDuration = time.Since(scanStart)
 	result.Metrics.FindingsCount = len(scanResult.Findings)
+
+	// Step 4b: Tokenize PII findings if enabled
+	if p.config.EnableTokenization && p.tokenizer != nil && len(scanResult.Findings) > 0 {
+		tokenizedContent, tokenCount := p.tokenizeFindings(ctx, req, scanResult, contentToScan)
+		if tokenCount > 0 {
+			result.RedactedContent = tokenizedContent
+		}
+	}
 
 	// Step 5: Evaluate and execute actions if findings exist and actions are enabled
 	if p.config.EnableActions && p.engine != nil && len(scanResult.Findings) > 0 {
@@ -291,12 +309,64 @@ func (p *defaultProcessor) Verify(attestation Attestation) (bool, error) {
 	return true, nil
 }
 
+// tokenizeFindings replaces PII values in content with Databunker tokens.
+// Returns the modified content and the number of values tokenized.
+// Errors are non-fatal: individual tokenization failures are skipped.
+func (p *defaultProcessor) tokenizeFindings(ctx context.Context, req ProcessRequest, scanResult *scan.ScanResult, content []byte) ([]byte, int) {
+	tokenizeTypeSet := make(map[scan.PIIType]bool, len(p.config.TokenizeTypes))
+	for _, t := range p.config.TokenizeTypes {
+		tokenizeTypeSet[t] = true
+	}
+
+	modified := make([]byte, len(content))
+	copy(modified, content)
+	tokenCount := 0
+
+	for i := range scanResult.Findings {
+		f := &scanResult.Findings[i]
+		if f.PatternType != scan.PatternTypePII {
+			continue
+		}
+		if !tokenizeTypeSet[f.PIIType] {
+			continue
+		}
+		if f.Value == "" {
+			continue
+		}
+
+		resp, err := p.tokenizer.Tokenize(ctx, tokenize.TokenizeRequest{
+			TenantID:  req.TenantID,
+			PIIType:   f.PIIType,
+			Value:     f.Value,
+			RequestID: req.RequestID,
+			UserID:    req.UserID,
+		})
+		if err != nil {
+			// Non-fatal: skip this finding
+			continue
+		}
+
+		replacement := tokenize.TokenFormat(f.PIIType, resp.Token)
+		modified = bytes.ReplaceAll(modified, []byte(f.Value), []byte(replacement))
+		f.Tokenized = true
+		f.TokenID = resp.Token
+		tokenCount++
+	}
+
+	return modified, tokenCount
+}
+
 // Close releases resources held by the processor's sub-components.
 func (p *defaultProcessor) Close() error {
 	var errs []error
 	if p.extractor != nil {
 		if err := p.extractor.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("extractor close: %w", err))
+		}
+	}
+	if p.tokenizer != nil {
+		if err := p.tokenizer.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("tokenizer close: %w", err))
 		}
 	}
 	if p.engine != nil {

@@ -17,10 +17,16 @@ type ollamaEmbedder struct {
 	url        string
 	model      string
 	dimensions int
+	batchSize  int
+	normalize  bool
 }
 
 // NewEmbedder creates a new Ollama-based embedder.
 func NewEmbedder(config EmbeddingConfig, ollamaURL string) Embedder {
+	batchSize := config.BatchSize
+	if batchSize <= 0 {
+		batchSize = 32
+	}
 	return &ollamaEmbedder{
 		client: &http.Client{
 			Timeout: 30 * time.Second,
@@ -28,6 +34,8 @@ func NewEmbedder(config EmbeddingConfig, ollamaURL string) Embedder {
 		url:        ollamaURL,
 		model:      config.Model,
 		dimensions: config.Dimensions,
+		batchSize:  batchSize,
+		normalize:  config.Normalize,
 	}
 }
 
@@ -54,12 +62,40 @@ func (e *ollamaEmbedder) Embed(ctx context.Context, text string) ([]float64, err
 	return embeddings[0], nil
 }
 
-// EmbedBatch generates embeddings for multiple texts in a single request.
+// EmbedBatch generates embeddings for multiple texts, splitting into sub-batches
+// of size batchSize to avoid OOM or timeout on the Ollama side.
 func (e *ollamaEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float64, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
 
+	allEmbeddings := make([][]float64, 0, len(texts))
+
+	for start := 0; start < len(texts); start += e.batchSize {
+		end := start + e.batchSize
+		if end > len(texts) {
+			end = len(texts)
+		}
+		batch := texts[start:end]
+
+		embeddings, err := e.embedBatchRequest(ctx, batch)
+		if err != nil {
+			return nil, err
+		}
+		allEmbeddings = append(allEmbeddings, embeddings...)
+	}
+
+	if e.normalize {
+		for i := range allEmbeddings {
+			allEmbeddings[i] = normalizeVector(allEmbeddings[i])
+		}
+	}
+
+	return allEmbeddings, nil
+}
+
+// embedBatchRequest sends a single batch of texts to the Ollama /api/embed endpoint.
+func (e *ollamaEmbedder) embedBatchRequest(ctx context.Context, texts []string) ([][]float64, error) {
 	reqBody := ollamaEmbedRequest{
 		Model: e.model,
 		Input: texts,
@@ -98,6 +134,24 @@ func (e *ollamaEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]fl
 	}
 
 	return embedResp.Embeddings, nil
+}
+
+// normalizeVector returns a new vector with unit L2 norm.
+// If the vector has zero magnitude, it is returned unchanged.
+func normalizeVector(v []float64) []float64 {
+	var sumSq float64
+	for _, val := range v {
+		sumSq += val * val
+	}
+	norm := math.Sqrt(sumSq)
+	if norm == 0 {
+		return v
+	}
+	result := make([]float64, len(v))
+	for i, val := range v {
+		result[i] = val / norm
+	}
+	return result
 }
 
 // Similarity calculates the cosine similarity between two embedding vectors.

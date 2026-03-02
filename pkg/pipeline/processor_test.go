@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/extract"
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/scan"
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/stream"
+	"github.com/Tributary-ai-services/Gatekeeper/pkg/tokenize"
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/types"
 )
 
@@ -1421,3 +1423,375 @@ func TestSummarize_NoExtractor_ReturnsError(t *testing.T) {
 func TestSummarize_InterfaceCompliance(t *testing.T) {
 	var _ Processor = (*defaultProcessor)(nil)
 }
+
+// --- Mock tokenizer ---
+
+type mockTokenizer struct {
+	tokenizeFunc     func(ctx context.Context, req tokenize.TokenizeRequest) (*tokenize.TokenizeResponse, error)
+	detokenizeFunc   func(ctx context.Context, req tokenize.DetokenizeRequest) (*tokenize.DetokenizeResponse, error)
+	getSecretFunc    func(ctx context.Context, secretName string) ([]byte, error)
+	logAuditFunc     func(ctx context.Context, event tokenize.AuditEvent) error
+	closed           bool
+	mu               sync.Mutex
+	tokenizeCount    int
+}
+
+func (m *mockTokenizer) Tokenize(ctx context.Context, req tokenize.TokenizeRequest) (*tokenize.TokenizeResponse, error) {
+	m.mu.Lock()
+	m.tokenizeCount++
+	m.mu.Unlock()
+	if m.tokenizeFunc != nil {
+		return m.tokenizeFunc(ctx, req)
+	}
+	return &tokenize.TokenizeResponse{
+		Token:   "tok-" + string(req.PIIType),
+		PIIType: req.PIIType,
+	}, nil
+}
+
+func (m *mockTokenizer) TokenizeBatch(ctx context.Context, reqs []tokenize.TokenizeRequest) ([]tokenize.TokenizeResponse, error) {
+	results := make([]tokenize.TokenizeResponse, 0, len(reqs))
+	for _, req := range reqs {
+		resp, err := m.Tokenize(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, *resp)
+	}
+	return results, nil
+}
+
+func (m *mockTokenizer) Detokenize(ctx context.Context, req tokenize.DetokenizeRequest) (*tokenize.DetokenizeResponse, error) {
+	if m.detokenizeFunc != nil {
+		return m.detokenizeFunc(ctx, req)
+	}
+	return &tokenize.DetokenizeResponse{}, nil
+}
+
+func (m *mockTokenizer) GetSecret(ctx context.Context, secretName string) ([]byte, error) {
+	if m.getSecretFunc != nil {
+		return m.getSecretFunc(ctx, secretName)
+	}
+	return nil, nil
+}
+
+func (m *mockTokenizer) LogAudit(ctx context.Context, event tokenize.AuditEvent) error {
+	if m.logAuditFunc != nil {
+		return m.logAuditFunc(ctx, event)
+	}
+	return nil
+}
+
+func (m *mockTokenizer) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.closed = true
+	return nil
+}
+
+func (m *mockTokenizer) getTokenizeCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.tokenizeCount
+}
+
+func (m *mockTokenizer) isClosed() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.closed
+}
+
+// --- Tokenization pipeline tests ---
+
+func TestProcess_TokenizationEnabled(t *testing.T) {
+	emailValue := "test@example.com"
+	ssnValue := "123-45-6789"
+
+	findings := []scan.Finding{
+		{
+			ID:          "f-1",
+			PatternID:   "email",
+			PatternType: scan.PatternTypePII,
+			PIIType:     scan.PIITypeEmail,
+			Value:       emailValue,
+			Confidence:  0.99,
+			Severity:    scan.SeverityHigh,
+		},
+		{
+			ID:          "f-2",
+			PatternID:   "ssn",
+			PatternType: scan.PatternTypePII,
+			PIIType:     scan.PIITypeSSN,
+			Value:       ssnValue,
+			Confidence:  0.95,
+			Severity:    scan.SeverityCritical,
+		},
+	}
+	scanResult := makeScanResultWithFindings(findings)
+
+	scanner := &mockScanner{
+		scanFunc: func(ctx context.Context, content []byte, config *scan.ScanConfig) (*scan.ScanResult, error) {
+			return scanResult, nil
+		},
+	}
+
+	tok := &mockTokenizer{}
+	p := NewProcessor(scanner,
+		WithTokenizer(tok),
+		WithConfig(&ProcessorConfig{
+			ServiceID:          "test-svc",
+			EnableTokenization: true,
+			TokenizeTypes: []scan.PIIType{
+				scan.PIITypeEmail,
+				scan.PIITypeSSN,
+			},
+		}),
+	)
+
+	content := []byte("Contact test@example.com or SSN 123-45-6789")
+	result, err := p.Process(context.Background(), ProcessRequest{
+		Content:     content,
+		TrustTier:   scan.TierExternal,
+		ScanProfile: scan.ProfileFull,
+		TenantID:    "tenant-1",
+		RequestID:   "req-tok-1",
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.RedactedContent == nil {
+		t.Fatal("expected RedactedContent to be set")
+	}
+	if tok.getTokenizeCount() != 2 {
+		t.Errorf("expected 2 tokenize calls, got %d", tok.getTokenizeCount())
+	}
+	// Verify tokens are in the redacted content
+	redacted := string(result.RedactedContent)
+	if !strings.Contains(redacted, "[email:tok-email]") {
+		t.Errorf("expected email token in redacted content, got: %s", redacted)
+	}
+	if !strings.Contains(redacted, "[ssn:tok-ssn]") {
+		t.Errorf("expected ssn token in redacted content, got: %s", redacted)
+	}
+	// Original values should be replaced
+	if strings.Contains(redacted, emailValue) {
+		t.Error("expected original email to be replaced in redacted content")
+	}
+	if strings.Contains(redacted, ssnValue) {
+		t.Error("expected original SSN to be replaced in redacted content")
+	}
+	// Findings should be marked as tokenized
+	for _, f := range result.ScanResult.Findings {
+		if !f.Tokenized {
+			t.Errorf("expected finding %s to be marked tokenized", f.ID)
+		}
+	}
+}
+
+func TestProcess_TokenizationDisabled(t *testing.T) {
+	findings := []scan.Finding{
+		{
+			ID:          "f-1",
+			PatternID:   "email",
+			PatternType: scan.PatternTypePII,
+			PIIType:     scan.PIITypeEmail,
+			Value:       "test@example.com",
+			Confidence:  0.99,
+			Severity:    scan.SeverityHigh,
+		},
+	}
+	scanResult := makeScanResultWithFindings(findings)
+
+	scanner := &mockScanner{
+		scanFunc: func(ctx context.Context, content []byte, config *scan.ScanConfig) (*scan.ScanResult, error) {
+			return scanResult, nil
+		},
+	}
+
+	tok := &mockTokenizer{}
+	p := NewProcessor(scanner,
+		WithTokenizer(tok),
+		WithConfig(&ProcessorConfig{
+			ServiceID:          "test-svc",
+			EnableTokenization: false, // Disabled
+		}),
+	)
+
+	result, err := p.Process(context.Background(), ProcessRequest{
+		Content:     []byte("test@example.com"),
+		TrustTier:   scan.TierExternal,
+		ScanProfile: scan.ProfileFull,
+		TenantID:    "tenant-1",
+		RequestID:   "req-tok-2",
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.RedactedContent != nil {
+		t.Error("expected no RedactedContent when tokenization disabled")
+	}
+	if tok.getTokenizeCount() != 0 {
+		t.Errorf("expected 0 tokenize calls, got %d", tok.getTokenizeCount())
+	}
+}
+
+func TestProcess_TokenizationError_NonFatal(t *testing.T) {
+	findings := []scan.Finding{
+		{
+			ID:          "f-1",
+			PatternID:   "email",
+			PatternType: scan.PatternTypePII,
+			PIIType:     scan.PIITypeEmail,
+			Value:       "test@example.com",
+			Confidence:  0.99,
+			Severity:    scan.SeverityHigh,
+		},
+	}
+	scanResult := makeScanResultWithFindings(findings)
+
+	scanner := &mockScanner{
+		scanFunc: func(ctx context.Context, content []byte, config *scan.ScanConfig) (*scan.ScanResult, error) {
+			return scanResult, nil
+		},
+	}
+
+	tok := &mockTokenizer{
+		tokenizeFunc: func(ctx context.Context, req tokenize.TokenizeRequest) (*tokenize.TokenizeResponse, error) {
+			return nil, fmt.Errorf("databunker unavailable")
+		},
+	}
+
+	p := NewProcessor(scanner,
+		WithTokenizer(tok),
+		WithConfig(&ProcessorConfig{
+			ServiceID:          "test-svc",
+			EnableTokenization: true,
+			TokenizeTypes:      []scan.PIIType{scan.PIITypeEmail},
+		}),
+	)
+
+	result, err := p.Process(context.Background(), ProcessRequest{
+		Content:     []byte("test@example.com"),
+		TrustTier:   scan.TierExternal,
+		ScanProfile: scan.ProfileFull,
+		TenantID:    "tenant-1",
+		RequestID:   "req-tok-3",
+	})
+
+	// Tokenization error should NOT fail the pipeline
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.ScanResult == nil {
+		t.Fatal("expected scan result to be set despite tokenization error")
+	}
+	// No content was tokenized, so RedactedContent should be nil
+	if result.RedactedContent != nil {
+		t.Error("expected no RedactedContent when all tokenizations fail")
+	}
+}
+
+func TestProcess_TokenizationFiltersByType(t *testing.T) {
+	findings := []scan.Finding{
+		{
+			ID:          "f-1",
+			PatternID:   "email",
+			PatternType: scan.PatternTypePII,
+			PIIType:     scan.PIITypeEmail,
+			Value:       "test@example.com",
+			Confidence:  0.99,
+			Severity:    scan.SeverityHigh,
+		},
+		{
+			ID:          "f-2",
+			PatternID:   "ip_address",
+			PatternType: scan.PatternTypePII,
+			PIIType:     scan.PIITypeIPAddress,
+			Value:       "192.168.1.1",
+			Confidence:  0.90,
+			Severity:    scan.SeverityMedium,
+		},
+		{
+			ID:            "f-3",
+			PatternID:     "sql_injection",
+			PatternType:   scan.PatternTypeInjection,
+			InjectionType: scan.InjectionTypeSQL,
+			Value:         "'; DROP TABLE--",
+			Confidence:    0.85,
+			Severity:      scan.SeverityCritical,
+		},
+	}
+	scanResult := makeScanResultWithFindings(findings)
+
+	scanner := &mockScanner{
+		scanFunc: func(ctx context.Context, content []byte, config *scan.ScanConfig) (*scan.ScanResult, error) {
+			return scanResult, nil
+		},
+	}
+
+	tok := &mockTokenizer{}
+	p := NewProcessor(scanner,
+		WithTokenizer(tok),
+		WithConfig(&ProcessorConfig{
+			ServiceID:          "test-svc",
+			EnableTokenization: true,
+			TokenizeTypes:      []scan.PIIType{scan.PIITypeEmail}, // Only email
+		}),
+	)
+
+	result, err := p.Process(context.Background(), ProcessRequest{
+		Content:     []byte("Contact test@example.com from 192.168.1.1"),
+		TrustTier:   scan.TierExternal,
+		ScanProfile: scan.ProfileFull,
+		TenantID:    "tenant-1",
+		RequestID:   "req-tok-4",
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Only email should be tokenized (ip_address not in TokenizeTypes, injection not PII)
+	if tok.getTokenizeCount() != 1 {
+		t.Errorf("expected 1 tokenize call (email only), got %d", tok.getTokenizeCount())
+	}
+	if result.RedactedContent == nil {
+		t.Fatal("expected RedactedContent to be set")
+	}
+	redacted := string(result.RedactedContent)
+	if !strings.Contains(redacted, "[email:tok-email]") {
+		t.Errorf("expected email token in redacted content, got: %s", redacted)
+	}
+	// IP address should remain unchanged
+	if !strings.Contains(redacted, "192.168.1.1") {
+		t.Errorf("expected IP address to remain in content, got: %s", redacted)
+	}
+}
+
+func TestClose_WithTokenizer(t *testing.T) {
+	tok := &mockTokenizer{}
+	engine := &mockEngine{}
+	streamer := &mockStreamer{}
+
+	p := NewProcessor(&mockScanner{},
+		WithTokenizer(tok),
+		WithActionEngine(engine),
+		WithStreamer(streamer),
+	)
+
+	err := p.Close()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !tok.isClosed() {
+		t.Error("expected tokenizer to be closed")
+	}
+	if !engine.isClosed() {
+		t.Error("expected engine to be closed")
+	}
+	if !streamer.isClosed() {
+		t.Error("expected streamer to be closed")
+	}
+}
+

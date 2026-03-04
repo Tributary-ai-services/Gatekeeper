@@ -1,4 +1,4 @@
-//go:build !hyperscan
+//go:build nohs
 
 package scan
 

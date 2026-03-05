@@ -5,7 +5,7 @@
 .PHONY: generate generate-mocks proto docker-build docker-push
 .PHONY: dev-services dev-services-down ci pre-commit check-all
 .PHONY: build-server run-server benchmark install-tools
-.PHONY: build-hyperscan test-hyperscan benchmark-hyperscan benchmark-compare
+.PHONY: build-nohs test-nohs benchmark-nohs benchmark-compare
 
 # Build variables
 BINARY_NAME=contentintel-server
@@ -232,30 +232,30 @@ run-server: build-server
 	@echo "Running server..."
 	./bin/$(BINARY_NAME)
 
-## build-hyperscan: Build with Hyperscan engine (requires libhyperscan-dev)
-build-hyperscan:
-	@echo "Building with Hyperscan..."
-	$(GOBUILD) -tags hyperscan $(ALL_PACKAGES)
+## build-nohs: Build with Go regexp engine (no Hyperscan dependency)
+build-nohs:
+	@echo "Building with Go regexp engine..."
+	$(GOBUILD) -tags nohs $(ALL_PACKAGES)
 
-## test-hyperscan: Run tests with Hyperscan engine
-test-hyperscan:
-	@echo "Running tests with Hyperscan engine..."
-	$(GOTEST) -v -tags hyperscan $(ALL_PACKAGES)
+## test-nohs: Run tests with Go regexp engine
+test-nohs:
+	@echo "Running tests with Go regexp engine..."
+	$(GOTEST) -v -tags nohs $(ALL_PACKAGES)
 
-## benchmark-hyperscan: Run benchmarks with Hyperscan engine
-benchmark-hyperscan:
-	@echo "Running Hyperscan benchmarks..."
-	$(GOTEST) -bench=. -benchmem -tags hyperscan $(ALL_PACKAGES)
+## benchmark-nohs: Run benchmarks with Go regexp engine
+benchmark-nohs:
+	@echo "Running Go regexp benchmarks..."
+	$(GOTEST) -bench=. -benchmem -tags nohs $(ALL_PACKAGES)
 
 ## benchmark-compare: Run benchmarks with both engines for comparison
 benchmark-compare:
+	@echo "=== Hyperscan engine (default) ==="
+	$(GOTEST) -bench=. -benchmem -count=3 -run=^$$ ./pkg/scan/ | tee /tmp/bench-hyperscan.txt
+	@echo ""
 	@echo "=== Go regexp engine ==="
-	$(GOTEST) -bench=. -benchmem -count=3 -run=^$$ ./pkg/scan/ | tee /tmp/bench-regexp.txt
+	$(GOTEST) -bench=. -benchmem -count=3 -tags nohs -run=^$$ ./pkg/scan/ | tee /tmp/bench-regexp.txt
 	@echo ""
-	@echo "=== Hyperscan engine ==="
-	$(GOTEST) -bench=. -benchmem -count=3 -tags hyperscan -run=^$$ ./pkg/scan/ | tee /tmp/bench-hyperscan.txt
-	@echo ""
-	@echo "Results saved to /tmp/bench-regexp.txt and /tmp/bench-hyperscan.txt"
+	@echo "Results saved to /tmp/bench-hyperscan.txt and /tmp/bench-regexp.txt"
 
 ## install-tools: Install development tools
 install-tools:

@@ -80,6 +80,8 @@ func NewKafkaStreamerWithProducer(producer sarama.AsyncProducer, config *Streame
 }
 
 // Stream publishes findings to Kafka topics based on routing rules.
+// Each finding is wrapped in an Envelope v1 before publishing so consumers
+// share a single schema across compliance + activity topics.
 func (ks *KafkaStreamer) Stream(ctx context.Context, findings []Finding) error {
 	ks.mu.RLock()
 	defer ks.mu.RUnlock()
@@ -93,12 +95,12 @@ func (ks *KafkaStreamer) Stream(ctx context.Context, findings []Finding) error {
 			return err
 		}
 
-		data, err := json.Marshal(finding)
+		envelope := WrapFinding(finding, ks.config.SourceService)
+		data, err := json.Marshal(envelope)
 		if err != nil {
-			return fmt.Errorf("failed to marshal finding %s: %w", finding.ID, err)
+			return fmt.Errorf("failed to marshal envelope for finding %s: %w", finding.ID, err)
 		}
 
-		// Route to appropriate topics
 		topics := ks.router.Route(finding)
 		for _, topic := range topics {
 			msg := &sarama.ProducerMessage{

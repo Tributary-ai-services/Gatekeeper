@@ -86,6 +86,10 @@ type StreamerConfig struct {
 	Brokers        []string `json:"brokers"`
 	Topics         Topics   `json:"topics"`
 
+	// SourceService identifies the producer in envelope metadata
+	// (e.g. "gatekeeper", "llm-router"). Consumers use this to attribute events.
+	SourceService string `json:"source_service"`
+
 	// Producer settings
 	BatchSize      int           `json:"batch_size"`
 	FlushInterval  time.Duration `json:"flush_interval"`
@@ -103,6 +107,10 @@ type Topics struct {
 	Critical string `json:"critical"`  // Critical severity only
 	HIPAA    string `json:"hipaa"`     // HIPAA-specific
 	PCI      string `json:"pci"`       // PCI-DSS specific
+	NIST     string `json:"nist"`      // NIST CSF / NIST AI RMF
+	SOC2     string `json:"soc2"`      // SOC 2
+	EUAI     string `json:"eu_ai"`     // EU AI Act
+	ISO27001 string `json:"iso27001"`  // ISO/IEC 27001
 	Actions  string `json:"actions"`   // Action events
 	Audit    string `json:"audit"`     // Audit log
 }
@@ -110,12 +118,17 @@ type Topics struct {
 // DefaultStreamerConfig returns default streamer configuration
 func DefaultStreamerConfig() *StreamerConfig {
 	return &StreamerConfig{
-		Brokers: []string{"localhost:9092"},
+		Brokers:       []string{"localhost:9092"},
+		SourceService: "gatekeeper",
 		Topics: Topics{
 			Findings: "tas.compliance.findings",
 			Critical: "tas.compliance.findings.critical",
 			HIPAA:    "tas.compliance.findings.hipaa",
 			PCI:      "tas.compliance.findings.pci",
+			NIST:     "tas.compliance.findings.nist",
+			SOC2:     "tas.compliance.findings.soc2",
+			EUAI:     "tas.compliance.findings.eu_ai",
+			ISO27001: "tas.compliance.findings.iso27001",
 			Actions:  "tas.compliance.actions",
 			Audit:    "tas.compliance.audit",
 		},

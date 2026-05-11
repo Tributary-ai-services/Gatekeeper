@@ -17,8 +17,46 @@ func testTopics() Topics {
 		Critical: "tas.compliance.findings.critical",
 		HIPAA:    "tas.compliance.findings.hipaa",
 		PCI:      "tas.compliance.findings.pci",
+		NIST:     "tas.compliance.findings.nist",
+		SOC2:     "tas.compliance.findings.soc2",
+		EUAI:     "tas.compliance.findings.eu_ai",
+		ISO27001: "tas.compliance.findings.iso27001",
 		Actions:  "tas.compliance.actions",
 		Audit:    "tas.compliance.audit",
+	}
+}
+
+// TestTopicRouter_ExtendedFrameworks verifies that the 4 frameworks added in
+// 6a (NIST, SOC2, EU_AI, ISO_27001) each fan out to their dedicated topic.
+func TestTopicRouter_ExtendedFrameworks(t *testing.T) {
+	router := NewTopicRouter(testTopics())
+
+	cases := []struct {
+		name      string
+		framework string
+		want      string
+	}{
+		{"NIST_CSF", string(scan.FrameworkNISTCSF), testTopics().NIST},
+		{"NIST_AI_RMF", string(scan.FrameworkNISTAIRMF), testTopics().NIST},
+		{"SOC2", string(scan.FrameworkSOC2), testTopics().SOC2},
+		{"EU_AI_ACT", string(scan.FrameworkEUAIAct), testTopics().EUAI},
+		{"ISO_27001", string(scan.FrameworkISO27001), testTopics().ISO27001},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			topics := router.Route(Finding{
+				ID:         "f-" + tc.name,
+				PatternID:  "ssn",
+				Severity:   scan.SeverityHigh,
+				Frameworks: []string{tc.framework},
+			})
+			if len(topics) != 2 {
+				t.Fatalf("expected 2 topics, got %d: %v", len(topics), topics)
+			}
+			assertContains(t, topics, testTopics().Findings)
+			assertContains(t, topics, tc.want)
+		})
 	}
 }
 

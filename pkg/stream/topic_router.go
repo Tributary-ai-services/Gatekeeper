@@ -21,23 +21,32 @@ func NewTopicRouter(topics Topics) *TopicRouter {
 // Routing rules:
 //   - ALL findings go to topics.Findings
 //   - Critical severity findings also go to topics.Critical
-//   - Findings with HIPAA framework also go to topics.HIPAA
-//   - Findings with PCI_DSS framework also go to topics.PCI
+//   - Findings carrying a compliance framework fan out to that framework's topic
+//     (HIPAA, PCI_DSS, NIST_CSF/NIST_AI_RMF, SOC2, EU_AI_ACT, ISO_27001)
+//
+// A finding listing the same framework more than once will produce duplicate
+// topics; callers that care should dedupe.
 func (r *TopicRouter) Route(finding Finding) []string {
 	topics := []string{r.topics.Findings}
 
-	// Critical severity findings also go to the critical topic
 	if finding.Severity == scan.SeverityCritical {
 		topics = append(topics, r.topics.Critical)
 	}
 
-	// Check frameworks for HIPAA and PCI_DSS
 	for _, fw := range finding.Frameworks {
 		switch fw {
 		case string(scan.FrameworkHIPAA):
 			topics = append(topics, r.topics.HIPAA)
 		case string(scan.FrameworkPCIDSS):
 			topics = append(topics, r.topics.PCI)
+		case string(scan.FrameworkNISTCSF), string(scan.FrameworkNISTAIRMF):
+			topics = append(topics, r.topics.NIST)
+		case string(scan.FrameworkSOC2):
+			topics = append(topics, r.topics.SOC2)
+		case string(scan.FrameworkEUAIAct):
+			topics = append(topics, r.topics.EUAI)
+		case string(scan.FrameworkISO27001):
+			topics = append(topics, r.topics.ISO27001)
 		}
 	}
 

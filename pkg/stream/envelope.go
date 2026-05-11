@@ -47,17 +47,27 @@ type Envelope struct {
 	Payload any `json:"payload"`
 }
 
-// WrapFinding builds an Envelope v1 around a stream.Finding. EventID is generated
-// fresh; consumers deduplicate on it. Timestamp defaults to Finding.Timestamp
-// when non-zero so a replayed finding keeps its original event time.
+// WrapFinding builds an Envelope v1 around a stream.Finding with a freshly
+// generated EventID. Equivalent to WrapFindingWithID(uuid.NewString(), …).
 func WrapFinding(f Finding, sourceService string) Envelope {
+	return WrapFindingWithID(uuid.NewString(), f, sourceService)
+}
+
+// WrapFindingWithID builds an Envelope v1 around a stream.Finding using a
+// caller-supplied EventID. Use this when the same event is dual-published
+// in another envelope format (e.g. CloudEvents) so consumers can dedupe
+// on a stable ID across formats.
+//
+// Timestamp defaults to Finding.Timestamp when non-zero so a replayed
+// finding keeps its original event time.
+func WrapFindingWithID(eventID string, f Finding, sourceService string) Envelope {
 	ts := f.Timestamp
 	if ts.IsZero() {
 		ts = time.Now().UTC()
 	}
 	return Envelope{
 		SchemaVersion: SchemaVersion,
-		EventID:       uuid.NewString(),
+		EventID:       eventID,
 		EventType:     EventTypeFinding,
 		Timestamp:     ts,
 		TenantID:      f.TenantID,
@@ -72,13 +82,19 @@ func WrapFinding(f Finding, sourceService string) Envelope {
 
 // WrapAction builds an Envelope v1 around an ActionEvent.
 func WrapAction(a ActionEvent, sourceService string) Envelope {
+	return WrapActionWithID(uuid.NewString(), a, sourceService)
+}
+
+// WrapActionWithID builds an Envelope v1 around an ActionEvent with a
+// caller-supplied EventID (see WrapFindingWithID for dual-publish rationale).
+func WrapActionWithID(eventID string, a ActionEvent, sourceService string) Envelope {
 	ts := a.Timestamp
 	if ts.IsZero() {
 		ts = time.Now().UTC()
 	}
 	return Envelope{
 		SchemaVersion: SchemaVersion,
-		EventID:       uuid.NewString(),
+		EventID:       eventID,
 		EventType:     EventTypeAction,
 		Timestamp:     ts,
 		TenantID:      a.TenantID,
@@ -90,13 +106,19 @@ func WrapAction(a ActionEvent, sourceService string) Envelope {
 
 // WrapAudit builds an Envelope v1 around an AuditEvent.
 func WrapAudit(a AuditEvent, sourceService string) Envelope {
+	return WrapAuditWithID(uuid.NewString(), a, sourceService)
+}
+
+// WrapAuditWithID builds an Envelope v1 around an AuditEvent with a
+// caller-supplied EventID (see WrapFindingWithID for dual-publish rationale).
+func WrapAuditWithID(eventID string, a AuditEvent, sourceService string) Envelope {
 	ts := a.Timestamp
 	if ts.IsZero() {
 		ts = time.Now().UTC()
 	}
 	return Envelope{
 		SchemaVersion: SchemaVersion,
-		EventID:       uuid.NewString(),
+		EventID:       eventID,
 		EventType:     EventTypeAudit,
 		Timestamp:     ts,
 		TenantID:      a.TenantID,

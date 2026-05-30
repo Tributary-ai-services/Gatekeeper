@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/IBM/sarama"
+	"github.com/google/uuid"
 )
 
 // KafkaStreamer is a Kafka-backed implementation of Streamer.
@@ -80,6 +81,19 @@ func NewKafkaStreamerWithProducer(producer sarama.AsyncProducer, config *Streame
 }
 
 // Stream publishes findings to Kafka topics based on routing rules.
+//
+// Each finding is dual-published to every routed topic during the migration
+// window:
+//  1. Legacy Envelope v1 (existing consumers continue to work)
+//  2. CloudEvents 1.0 structured-mode (new aether-be + Spark consumers)
+//
+// Both messages share the same EventID (UUID) so a CE-aware consumer
+// receiving both can deduplicate; consumers that understand only one
+// envelope format silently ignore the other via the content-type header.
+//
+// When SourceService is empty (configuration error) we still produce a
+// stable CE source URN ("urn:tas:service:gatekeeper") so consumers can
+// always attribute events.
 func (ks *KafkaStreamer) Stream(ctx context.Context, findings []Finding) error {
 	ks.mu.RLock()
 	defer ks.mu.RUnlock()
@@ -93,29 +107,67 @@ func (ks *KafkaStreamer) Stream(ctx context.Context, findings []Finding) error {
 			return err
 		}
 
-		data, err := json.Marshal(finding)
+		eventID := uuid.NewString()
+
+		// Legacy envelope (Envelope v1, snake_case fields)
+		envelope := WrapFindingWithID(eventID, finding, ks.config.SourceService)
+		legacyValue, err := json.Marshal(envelope)
 		if err != nil {
-			return fmt.Errorf("failed to marshal finding %s: %w", finding.ID, err)
+			return fmt.Errorf("failed to marshal envelope for finding %s: %w", finding.ID, err)
 		}
 
-		// Route to appropriate topics
+		// CloudEvents 1.0 structured-mode (with content-type header)
+		ce := BuildFindingCE(eventID, finding, ks.config.SourceService)
+		ceValue, ceHeaders, err := EncodeCEForSarama(ce)
+		if err != nil {
+			// CE encode failure must NOT block legacy delivery. Log via
+			// the producer errors channel and continue with legacy only.
+			ceValue = nil
+			select {
+			case ks.errCh <- fmt.Errorf("ce encode failed for finding %s: %w", finding.ID, err):
+			default:
+			}
+		}
+
+		key := sarama.StringEncoder(finding.TenantID + ":" + finding.RequestID)
 		topics := ks.router.Route(finding)
 		for _, topic := range topics {
-			msg := &sarama.ProducerMessage{
+			// Legacy message
+			if err := ks.send(ctx, &sarama.ProducerMessage{
 				Topic: topic,
-				Key:   sarama.StringEncoder(finding.TenantID + ":" + finding.RequestID),
-				Value: sarama.ByteEncoder(data),
+				Key:   key,
+				Value: sarama.ByteEncoder(legacyValue),
+			}); err != nil {
+				return err
 			}
 
-			select {
-			case ks.producer.Input() <- msg:
-			case <-ctx.Done():
-				return ctx.Err()
+			// CloudEvents mirror (skipped if encode failed)
+			if ceValue == nil {
+				continue
+			}
+			if err := ks.send(ctx, &sarama.ProducerMessage{
+				Topic:   topic,
+				Key:     key,
+				Value:   sarama.ByteEncoder(ceValue),
+				Headers: ceHeaders,
+			}); err != nil {
+				return err
 			}
 		}
 	}
 
 	return nil
+}
+
+// send enqueues a message on the sarama AsyncProducer input channel,
+// respecting ctx cancellation.
+func (ks *KafkaStreamer) send(ctx context.Context, msg *sarama.ProducerMessage) error {
+	select {
+	case ks.producer.Input() <- msg:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // StreamBatch publishes a batch of findings. Uses the same implementation

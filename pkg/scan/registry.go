@@ -55,6 +55,13 @@ func NewDefaultRegistry() PatternRegistry {
 	registry.Register(NewXSSMatcher())
 	registry.Register(NewPromptInjectionMatcher())
 
+	// AIQG quality matchers (Custom-type). Fire as low/medium-severity
+	// findings on the AIQG Assurance dimension. Safe to enable for all
+	// callers — none auto-block; they only contribute scoring signal.
+	registry.Register(NewAIQGBloatedContextMatcher())
+	registry.Register(NewAIQGRoleClaimMatcher())
+	registry.Register(NewAIQGRefusalMatcher())
+
 	return registry
 }
 

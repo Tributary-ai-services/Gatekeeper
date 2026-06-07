@@ -62,6 +62,14 @@ func NewDefaultRegistry() PatternRegistry {
 	registry.Register(NewAIQGRoleClaimMatcher())
 	registry.Register(NewAIQGRefusalMatcher())
 
+	// AIQG outbound-focused quality matchers (matchers_aiqg_outbound.go).
+	// Repetition + hedging + malformed output. Direction-agnostic at
+	// the matcher level — they fire on either side; the scoring
+	// surface is the same.
+	registry.Register(NewAIQGRepetitionMatcher())
+	registry.Register(NewAIQGHallucinationHedgeMatcher())
+	registry.Register(NewAIQGMalformedOutputMatcher())
+
 	return registry
 }
 

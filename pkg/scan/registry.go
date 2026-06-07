@@ -70,6 +70,15 @@ func NewDefaultRegistry() PatternRegistry {
 	registry.Register(NewAIQGHallucinationHedgeMatcher())
 	registry.Register(NewAIQGMalformedOutputMatcher())
 
+	// AIQG safety / policy matchers (matchers_aiqg_safety.go). Populate
+	// the NIST AI RMF "Safe" characteristic on the dashboard. All
+	// inbound-focused (catch user prompts requesting unsafe outputs).
+	// Tuned for high precision to avoid eroding trust in the Safe
+	// metric.
+	registry.Register(NewAIQGHarmRequestMatcher())
+	registry.Register(NewAIQGCredentialSolicitationMatcher())
+	registry.Register(NewAIQGExplicitJailbreakMatcher())
+
 	return registry
 }
 

@@ -79,6 +79,13 @@ func NewDefaultRegistry() PatternRegistry {
 	registry.Register(NewAIQGCredentialSolicitationMatcher())
 	registry.Register(NewAIQGExplicitJailbreakMatcher())
 
+	// AIQG inbound input-quality antipatterns (matchers_aiqg_inbound.go).
+	// All three feed Valid & Reliable — vague / overloaded / unbounded
+	// prompts produce unreliable outputs regardless of intent.
+	registry.Register(NewAIQGVaguePromptMatcher())
+	registry.Register(NewAIQGInstructionStuffingMatcher())
+	registry.Register(NewAIQGUnboundedLoopMatcher())
+
 	return registry
 }
 

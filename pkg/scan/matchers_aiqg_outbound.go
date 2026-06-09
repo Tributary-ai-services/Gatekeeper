@@ -332,3 +332,89 @@ func bracesBalanced(s string) bool {
 	}
 	return len(stack) == 0
 }
+
+// ---------------------------------------------------------------------
+// Citation marker — RAG groundedness proxy
+// ---------------------------------------------------------------------
+
+// AIQGCitationMarkerMatcher detects citation patterns commonly produced
+// by RAG-enabled LLMs in their responses. Each match fires once, so the
+// total fire-count for this matcher on a single response (surfaced as
+// `tag_aiqg_citation_marker` on the AIQG response event) IS the
+// citation count for that response.
+//
+// The Health Report's groundedness card uses this to compute:
+//   - share of RAG-workflow responses with ≥1 citation
+//   - avg citations per RAG response
+//   - inventory of RAG responses with zero citations (suspicious — the
+//     model answered without grounding in retrieved context)
+//
+// Matched patterns (deliberately conservative to keep false-positive
+// rate on plain prose low):
+//   - Numbered footnote markers in brackets: [1], [42] (1–3 digits)
+//   - Named source brackets: [Source: …], [Ref: …], [Doc: …],
+//     [Citation: …], [Cite: …]
+//
+// Deliberately NOT matched (too noisy in non-RAG prose):
+//   - Inline parenthetical citations like (Smith 2023) — most
+//     parentheticals in conversational responses aren't citations
+//   - Markdown reference-style links [label](url) — labels are often
+//     plain link text rather than source identifiers
+//   - List markers like "1." at line start — these are enumeration,
+//     not citation
+type AIQGCitationMarkerMatcher struct {
+	baseMatcher
+	patterns []*regexp.Regexp
+}
+
+// NewAIQGCitationMarkerMatcher constructs the citation matcher.
+func NewAIQGCitationMarkerMatcher() *AIQGCitationMarkerMatcher {
+	return &AIQGCitationMarkerMatcher{
+		baseMatcher: baseMatcher{
+			id:          "aiqg-citation-marker",
+			name:        "AIQG Citation Marker",
+			patternType: PatternTypeCustom,
+			piiType:     "",
+			// Informational — citation presence is a *good* signal,
+			// not a blocking one. Low severity keeps the finding out
+			// of the "worst severity" tally on the response event;
+			// the count itself is the operator-facing dashboard signal.
+			severity:    SeverityLow,
+			riskBase:    0.15,
+			description: "Citation marker in response (groundedness proxy for RAG workflows)",
+		},
+		patterns: []*regexp.Regexp{
+			// Numbered footnote brackets: [1] through [999]
+			regexp.MustCompile(`\[\d{1,3}\]`),
+			// Named source/reference/doc/citation brackets.
+			// (?i) for case insensitivity; up to 80 chars of body so a
+			// long source identifier still matches.
+			regexp.MustCompile(`(?i)\[(?:Source|Ref|Doc|Citation|Cite)\s*:\s*[^\]]{1,80}\]`),
+		},
+	}
+}
+
+// Match returns one Match per citation occurrence. The TagFindings
+// map on the emitted AIQG response event aggregates these by id, so
+// the count of fires equals the citation count for the response.
+func (m *AIQGCitationMarkerMatcher) Match(content string) []Match {
+	var out []Match
+	for _, p := range m.patterns {
+		for _, idx := range p.FindAllStringIndex(content, -1) {
+			out = append(out, Match{
+				Value:    content[idx[0]:idx[1]],
+				StartPos: idx[0],
+				EndPos:   idx[1],
+				Context:  extractContext(content, idx[0], idx[1], 60),
+			})
+		}
+	}
+	return out
+}
+
+// GetConfidenceScore is constant for citation matches — either it's
+// a citation marker or it isn't. The COUNT (not the confidence) is
+// the operator-meaningful signal for groundedness scoring.
+func (m *AIQGCitationMarkerMatcher) GetConfidenceScore(match string) float64 {
+	return 0.90
+}

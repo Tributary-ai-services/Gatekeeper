@@ -121,11 +121,77 @@ func TestAIQGMalformed_NonJSONIsIgnored(t *testing.T) {
 	}
 }
 
+// ---------------- Citation marker ----------------
+
+func TestAIQGCitationMarker_NumberedFootnotes(t *testing.T) {
+	m := NewAIQGCitationMarkerMatcher()
+	body := `According to recent research [1], the protocol supports retries [2]. ` +
+		`See also [42] for the deprecation notice.`
+	got := m.Match(body)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 citation matches, got %d (%v)", len(got), got)
+	}
+	wantValues := []string{"[1]", "[2]", "[42]"}
+	for i, want := range wantValues {
+		if got[i].Value != want {
+			t.Errorf("match[%d].Value = %q, want %q", i, got[i].Value, want)
+		}
+	}
+}
+
+func TestAIQGCitationMarker_NamedSources(t *testing.T) {
+	m := NewAIQGCitationMarkerMatcher()
+	body := `Per [Source: RFC 9110], retries are allowed. ` +
+		`The vendor docs [Ref: vendor-api-v2] confirm this. ` +
+		`[CITATION: Smith et al. 2023] supports the claim.`
+	got := m.Match(body)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 named-source matches, got %d (%v)", len(got), got)
+	}
+}
+
+func TestAIQGCitationMarker_MixedPatterns(t *testing.T) {
+	m := NewAIQGCitationMarkerMatcher()
+	body := `Per [Source: RFC 9110] retries work [1]; see [2] for details.`
+	got := m.Match(body)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 mixed matches (1 named + 2 numbered), got %d", len(got))
+	}
+}
+
+func TestAIQGCitationMarker_NoFalsePositives(t *testing.T) {
+	m := NewAIQGCitationMarkerMatcher()
+	cases := []string{
+		// Inline parenthetical with year — explicitly NOT matched
+		`As Smith (2023) demonstrated, this is fine.`,
+		// Enumerated list items
+		`1. first item\n2. second item\n3. third item`,
+		// Markdown link without source: prefix
+		`See [the docs](https://example.com) for more.`,
+		// Year ranges in brackets (4 digits — out of range)
+		`The period [2020-2024] saw major changes.`,
+		// Plain prose
+		`There are no citations in this sentence.`,
+	}
+	for _, body := range cases {
+		if got := m.Match(body); len(got) > 0 {
+			t.Errorf("false positive on %q: %v", body, got)
+		}
+	}
+}
+
+func TestAIQGCitationMarker_EmptyContent(t *testing.T) {
+	m := NewAIQGCitationMarkerMatcher()
+	if got := m.Match(""); len(got) > 0 {
+		t.Errorf("empty content should match nothing: %v", got)
+	}
+}
+
 // ---------------- Registry ----------------
 
 func TestAIQGOutbound_RegisteredByDefault(t *testing.T) {
 	reg := NewDefaultRegistry()
-	for _, id := range []string{"aiqg-repetition", "aiqg-hallucination-hedge", "aiqg-malformed-output"} {
+	for _, id := range []string{"aiqg-repetition", "aiqg-hallucination-hedge", "aiqg-malformed-output", "aiqg-citation-marker"} {
 		if _, ok := reg.Get(id); !ok {
 			t.Errorf("matcher %q not registered in default registry", id)
 		}

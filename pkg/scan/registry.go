@@ -69,6 +69,11 @@ func NewDefaultRegistry() PatternRegistry {
 	registry.Register(NewAIQGRepetitionMatcher())
 	registry.Register(NewAIQGHallucinationHedgeMatcher())
 	registry.Register(NewAIQGMalformedOutputMatcher())
+	// Citation marker — outbound, RAG groundedness proxy. Each
+	// citation match fires once; the count on the response event's
+	// TagFindings IS the citation count for the Health Report's
+	// groundedness card. Maps to NIST Valid+Reliable.
+	registry.Register(NewAIQGCitationMarkerMatcher())
 
 	// AIQG safety / policy matchers (matchers_aiqg_safety.go). Populate
 	// the NIST AI RMF "Safe" characteristic on the dashboard. All

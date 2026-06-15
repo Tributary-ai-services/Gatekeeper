@@ -201,9 +201,12 @@ proto:
 	fi
 
 ## docker-build: Build Docker image
+# Built from the monorepo root (..) so the local `replace` dependency
+# aether-shared/go-events is in the build context. The root .dockerignore keeps
+# the context scoped to Gatekeeper/ and aether-shared/go-events/.
 docker-build:
 	@echo "Building Docker image..."
-	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+	docker build -f Dockerfile -t $(DOCKER_IMAGE):$(DOCKER_TAG) ..
 	docker tag $(DOCKER_IMAGE):$(DOCKER_TAG) $(DOCKER_IMAGE):latest
 
 ## docker-push: Push Docker image

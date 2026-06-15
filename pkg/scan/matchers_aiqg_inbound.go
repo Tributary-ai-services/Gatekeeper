@@ -99,12 +99,14 @@ func normalizeVaguePrompt(s string) string {
 	s = strings.TrimSpace(s)
 	s = strings.TrimRight(s, ".!?,;: ")
 	s = strings.ToLower(s)
-	// Collapse internal whitespace runs to single space.
+	// Collapse internal whitespace AND punctuation runs to a single space, so
+	// "again, please" normalizes to the same fragment as "again please". Only
+	// letters and digits survive as content; everything else is a separator.
 	var b strings.Builder
 	b.Grow(len(s))
 	lastSpace := false
 	for _, r := range s {
-		if unicode.IsSpace(r) {
+		if unicode.IsSpace(r) || unicode.IsPunct(r) || unicode.IsSymbol(r) {
 			if !lastSpace && b.Len() > 0 {
 				b.WriteByte(' ')
 				lastSpace = true

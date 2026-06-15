@@ -114,7 +114,12 @@ func NewAIQGCredentialSolicitationMatcher() *AIQGCredentialSolicitationMatcher {
 		patterns: []*regexp.Regexp{
 			// Direct credential requests
 			regexp.MustCompile(`(?i)\b(?:tell|show|give|reveal|share)\s+me\s+(?:the\s+|your\s+)?(?:api\s+key|password|secret|credentials|access\s+token|auth\s+token|private\s+key)\b`),
-			regexp.MustCompile(`(?i)\bwhat(?:'s|\s+is)\s+(?:the\s+|your\s+)?(?:api\s+key|password|secret|credentials|access\s+token)\b`),
+			// The secret noun must be the thing being solicited: followed by a
+			// preposition (for/to/of), trailing punctuation, or end of input.
+			// This avoids firing on policy questions like "what's the password
+			// length our team uses" while still catching "what's the password
+			// for the admin account?".
+			regexp.MustCompile(`(?i)\bwhat(?:'s|\s+is)\s+(?:the\s+|your\s+)?(?:api\s+key|password|secret|credentials|access\s+token)(?:\s+(?:for|to|of)\b|\s*[?.!,]|\s*$)`),
 
 			// System-prompt extraction — beyond what injection-prompt
 			// catches. Includes softer phrasings.
@@ -171,7 +176,9 @@ func NewAIQGExplicitJailbreakMatcher() *AIQGExplicitJailbreakMatcher {
 
 			// Explicit safety / guideline disablement
 			regexp.MustCompile(`(?i)\b(?:disable|bypass|ignore|turn\s+off|override)\s+(?:your\s+|all\s+|the\s+)?(?:safety|safeguards?|safety\s+(?:filters?|protocols?|guidelines?|measures?)|content\s+(?:filter|policy)|ethical\s+guidelines?)\b`),
-			regexp.MustCompile(`(?i)\bpretend\s+(?:that\s+)?(?:safety|guidelines?|restrictions?|filters?|rules?)\s+(?:are|don'?t)\s+(?:disabled|removed|exist|apply)\b`),
+			// Allow a short run of safety-nouns ("safety guidelines",
+			// "content rules") before the are/don't clause, not just one.
+			regexp.MustCompile(`(?i)\bpretend\s+(?:that\s+)?(?:(?:safety|content|ethical|guidelines?|restrictions?|filters?|rules?)\s+){1,3}(?:are|don'?t)\s+(?:disabled|removed|exist|apply)\b`),
 			regexp.MustCompile(`(?i)\bact\s+as\s+(?:if\s+)?(?:you\s+have\s+no|without)\s+(?:safety|restrictions?|guidelines?|content\s+policy|ethics?)\b`),
 
 			// "Do anything now" family

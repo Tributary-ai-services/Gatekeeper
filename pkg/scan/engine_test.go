@@ -239,13 +239,21 @@ func TestRawHitsToMatchesInvalidBounds(t *testing.T) {
 }
 
 func TestPatternDescriptorsAllMatchers(t *testing.T) {
-	// Verify every registered matcher returns at least one descriptor
+	// Verify every regex-backed matcher returns at least one descriptor, and
+	// that any descriptors returned are well-formed.
 	registry := NewDefaultRegistry()
 	matchers := registry.GetAll()
 
 	for _, m := range matchers {
 		descs := m.GetPatternDescriptors()
 		if len(descs) == 0 {
+			// Custom matchers (PatternTypeCustom) run via bespoke Match() logic
+			// — heuristics, counters, or map lookups that can't be expressed as
+			// a single engine regex — so they legitimately expose no descriptors
+			// and are scanned outside the Hyperscan engine path.
+			if m.GetType() == PatternTypeCustom {
+				continue
+			}
 			t.Errorf("matcher %s returned no descriptors", m.GetID())
 			continue
 		}

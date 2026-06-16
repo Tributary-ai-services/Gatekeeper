@@ -5,6 +5,7 @@ package scan
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 
@@ -40,57 +41,83 @@ type fallbackPattern struct {
 	compiled   *regexp.Regexp
 }
 
+// hsCandidate pairs a Hyperscan pattern with the descriptor it came from, so a
+// pattern that Hyperscan ultimately rejects can be routed to the Go regexp
+// fallback.
+type hsCandidate struct {
+	pattern *hyperscan.Pattern
+	desc    PatternDescriptor
+}
+
 // NewMatchEngine creates a MatchEngine backed by Hyperscan.
 func NewMatchEngine(descriptors []PatternDescriptor) (MatchEngine, error) {
 	if len(descriptors) == 0 {
 		return &hyperscanEngine{}, nil
 	}
 
-	var hsPatterns []*hyperscan.Pattern
-	var mappings []patternMapping
+	var candidates []hsCandidate
 	var fallbacks []fallbackPattern
+
+	// addFallback compiles a descriptor with Go regexp and records it for the
+	// fallback scan pass. Used for patterns Hyperscan can't handle.
+	addFallback := func(desc PatternDescriptor) error {
+		compiled, err := regexp.Compile(desc.Expression)
+		if err != nil {
+			return fmt.Errorf("pattern %s/%d: neither Hyperscan nor Go regexp compatible: %w",
+				desc.MatcherID, desc.PatternIndex, err)
+		}
+		fallbacks = append(fallbacks, fallbackPattern{descriptor: desc, compiled: compiled})
+		return nil
+	}
 
 	for _, desc := range descriptors {
 		expr, flags := sanitizeForHyperscan(desc)
 
-		// Validate compatibility
+		// Statically-detectable incompatibilities (e.g. backreferences) go
+		// straight to the Go regexp fallback.
 		if !isHyperscanCompatible(expr) {
-			// Fall back to Go regexp for this pattern
-			compiled, err := regexp.Compile(desc.Expression)
-			if err != nil {
-				return nil, fmt.Errorf("pattern %s/%d: neither Hyperscan nor Go regexp compatible: %w",
-					desc.MatcherID, desc.PatternIndex, err)
+			if err := addFallback(desc); err != nil {
+				return nil, err
 			}
-			fallbacks = append(fallbacks, fallbackPattern{
-				descriptor: desc,
-				compiled:   compiled,
-			})
 			continue
 		}
 
-		id := len(hsPatterns)
 		p := hyperscan.NewPattern(expr, flags|hyperscan.SomLeftMost)
-		p.Id = id
-		hsPatterns = append(hsPatterns, p)
-		mappings = append(mappings, patternMapping{
-			matcherID:    desc.MatcherID,
-			patternIndex: desc.PatternIndex,
-		})
+		candidates = append(candidates, hsCandidate{pattern: p, desc: desc})
 	}
 
-	engine := &hyperscanEngine{
-		descriptors:      descriptors,
-		patternMap:       mappings,
-		fallbackPatterns: fallbacks,
-	}
+	engine := &hyperscanEngine{descriptors: descriptors}
 
-	if len(hsPatterns) > 0 {
-		db, err := hyperscan.NewBlockDatabase(hsPatterns...)
-		if err != nil {
-			return nil, fmt.Errorf("failed to compile Hyperscan database: %w", err)
+	db, mappings, err := compileBlockDatabase(candidates)
+	if err != nil {
+		// The combined compile failed — most commonly "Pattern is too large",
+		// where a single pattern's NFA exceeds Hyperscan's limits (e.g. bounded
+		// repeats like [^\n]{0,200}). Isolate the offenders by compiling each
+		// candidate alone, route those to the Go regexp fallback, and recompile
+		// the remainder so Hyperscan still handles every pattern it can.
+		var good []hsCandidate
+		for _, c := range candidates {
+			single := *c.pattern
+			single.Id = 0
+			if _, e := hyperscan.NewBlockDatabase(&single); e != nil {
+				if ferr := addFallback(c.desc); ferr != nil {
+					return nil, ferr
+				}
+				continue
+			}
+			good = append(good, c)
 		}
-		engine.db = db
+		db, mappings, err = compileBlockDatabase(good)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compile Hyperscan database after isolating oversized patterns: %w", err)
+		}
+	}
 
+	engine.patternMap = mappings
+	engine.fallbackPatterns = fallbacks
+
+	if db != nil {
+		engine.db = db
 		// Create scratch pool
 		engine.scratchPool = sync.Pool{
 			New: func() interface{} {
@@ -104,6 +131,34 @@ func NewMatchEngine(descriptors []PatternDescriptor) (MatchEngine, error) {
 	}
 
 	return engine, nil
+}
+
+// compileBlockDatabase assigns contiguous pattern IDs to the given candidates
+// and compiles them into a single Hyperscan block database. It returns the
+// database and a patternMap aligned with the assigned IDs (so a scan callback's
+// pattern id indexes directly into the returned slice). A nil database is
+// returned, with no error, when there are no candidates.
+func compileBlockDatabase(candidates []hsCandidate) (hyperscan.BlockDatabase, []patternMapping, error) {
+	if len(candidates) == 0 {
+		return nil, nil, nil
+	}
+
+	patterns := make([]*hyperscan.Pattern, len(candidates))
+	mappings := make([]patternMapping, len(candidates))
+	for i, c := range candidates {
+		c.pattern.Id = i
+		patterns[i] = c.pattern
+		mappings[i] = patternMapping{
+			matcherID:    c.desc.MatcherID,
+			patternIndex: c.desc.PatternIndex,
+		}
+	}
+
+	db, err := hyperscan.NewBlockDatabase(patterns...)
+	if err != nil {
+		return nil, nil, err
+	}
+	return db, mappings, nil
 }
 
 // sanitizeForHyperscan converts a Go regexp expression and descriptor flags
@@ -214,7 +269,43 @@ func (e *hyperscanEngine) ScanAll(content string) map[string][]RawMatch {
 		}
 	}
 
+	// Hyperscan reports a hit at every end position a pattern accepts (e.g.
+	// [A-Za-z]{2,} fires at ".co" and again at ".com"), so a single logical
+	// match surfaces as several overlapping RawMatches. Collapse each matcher's
+	// hits to non-overlapping, leftmost-longest matches to mirror Go regexp's
+	// FindAll semantics (and keep parity with the fallback path above).
+	for id, matches := range results {
+		results[id] = leftmostLongest(matches)
+	}
+
 	return results
+}
+
+// leftmostLongest reduces a set of (possibly overlapping) raw matches to the
+// non-overlapping, leftmost-longest subset, scanning left to right the same way
+// regexp.FindAll does. Input order is not assumed.
+func leftmostLongest(matches []RawMatch) []RawMatch {
+	if len(matches) <= 1 {
+		return matches
+	}
+
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].Start != matches[j].Start {
+			return matches[i].Start < matches[j].Start
+		}
+		// Prefer the longer match at the same start.
+		return matches[i].End > matches[j].End
+	})
+
+	out := matches[:0]
+	lastEnd := -1
+	for _, m := range matches {
+		if m.Start >= lastEnd {
+			out = append(out, m)
+			lastEnd = m.End
+		}
+	}
+	return out
 }
 
 // ScanMatchers scans all patterns (Hyperscan does a single pass regardless)

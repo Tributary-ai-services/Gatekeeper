@@ -201,12 +201,17 @@ proto:
 	fi
 
 ## docker-build: Build Docker image
-# Built from the monorepo root (..) so the local `replace` dependency
-# aether-shared/go-events is in the build context. The root .dockerignore keeps
-# the context scoped to Gatekeeper/ and aether-shared/go-events/.
+# Assemble a slim, self-contained build context with just this repo (as
+# Gatekeeper/) and its local replace dependency (as aether-shared/go-events/).
+# This keeps everything inside version control — no monorepo-root .dockerignore
+# and no dependence on the parent directory layout at build time.
 docker-build:
 	@echo "Building Docker image..."
-	docker build -f Dockerfile -t $(DOCKER_IMAGE):$(DOCKER_TAG) ..
+	@ctx=$$(mktemp -d) && trap 'rm -rf "$$ctx"' EXIT && \
+	  rsync -a --exclude='.git' --exclude='bin/' --exclude='dist/' --exclude='coverage.*' ./ "$$ctx/Gatekeeper/" && \
+	  mkdir -p "$$ctx/aether-shared" && \
+	  rsync -a ../aether-shared/go-events "$$ctx/aether-shared/" && \
+	  docker build -f Dockerfile -t $(DOCKER_IMAGE):$(DOCKER_TAG) "$$ctx"
 	docker tag $(DOCKER_IMAGE):$(DOCKER_TAG) $(DOCKER_IMAGE):latest
 
 ## docker-push: Push Docker image

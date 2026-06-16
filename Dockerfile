@@ -10,12 +10,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libhyperscan-dev pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# NOTE: this image must be built with the TAS monorepo root as the build context
-# (e.g. `docker build -f Gatekeeper/Dockerfile .` from the root, or `make
-# docker-build`), because Gatekeeper's go.mod has a local
-# `replace ... => ../aether-shared/go-events`. The sibling module lives outside
-# the Gatekeeper directory, so the context must span both. A root .dockerignore
-# keeps the context limited to just Gatekeeper/ and aether-shared/go-events/.
+# NOTE: the build context must contain BOTH this repo (as Gatekeeper/) and its
+# local replace dependency (as aether-shared/go-events/), because Gatekeeper's
+# go.mod has `replace ... => ../aether-shared/go-events` — the sibling module
+# lives outside this directory. `make docker-build` assembles a slim context
+# with exactly those two paths; build it that way rather than running
+# `docker build` against the repo directly.
 
 # Copy the local `replace` dependency first, preserving the relative layout the
 # go.mod expects (../aether-shared/go-events from the Gatekeeper module dir).

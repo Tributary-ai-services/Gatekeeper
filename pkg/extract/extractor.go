@@ -19,10 +19,10 @@ const (
 // SummarizeRequest contains inputs for summarization
 type SummarizeRequest struct {
 	Content     []byte            `json:"content"`
-	Query       string            `json:"query,omitempty"`    // Optional for map-reduce, required for embed strategy
+	Query       string            `json:"query,omitempty"` // Optional for map-reduce, required for embed strategy
 	Strategy    SummarizeStrategy `json:"strategy"`
-	MaxLength   int               `json:"max_length"`         // Max summary length in characters
-	ContentType string            `json:"content_type"`       // "text", "json", "markdown"
+	MaxLength   int               `json:"max_length"`   // Max summary length in characters
+	ContentType string            `json:"content_type"` // "text", "json", "markdown"
 }
 
 // SummarizeResult contains summarization output
@@ -60,15 +60,21 @@ type ExtractRequest struct {
 
 // ExtractResult contains extraction output
 type ExtractResult struct {
-	Content           []byte    `json:"content"`
-	OriginalSize      int       `json:"original_size"`
-	ExtractedSize     int       `json:"extracted_size"`
-	ReductionRatio    float64   `json:"reduction_ratio"`
-	ChunksProcessed   int       `json:"chunks_processed"`
-	ChunksRetained    int       `json:"chunks_retained"`
-	ProcessingTime    time.Duration `json:"processing_time"`
-	EmbeddingTime     time.Duration `json:"embedding_time"`
-	SLMTime           time.Duration `json:"slm_time,omitempty"`
+	Content         []byte  `json:"content"`
+	OriginalSize    int     `json:"original_size"`
+	ExtractedSize   int     `json:"extracted_size"`
+	ReductionRatio  float64 `json:"reduction_ratio"`
+	ChunksProcessed int     `json:"chunks_processed"`
+	ChunksRetained  int     `json:"chunks_retained"`
+	// SizeAfterRelevance is the byte size after relevance/top-K filtering
+	// but BEFORE the SLM step — lets callers attribute reduction per step
+	// (relevance contribution = OriginalSize − SizeAfterRelevance; SLM
+	// contribution = SizeAfterRelevance − ExtractedSize). 0 when no
+	// relevance step ran (below-min / no-query / embedding-failed paths).
+	SizeAfterRelevance int           `json:"size_after_relevance,omitempty"`
+	ProcessingTime     time.Duration `json:"processing_time"`
+	EmbeddingTime      time.Duration `json:"embedding_time"`
+	SLMTime            time.Duration `json:"slm_time,omitempty"`
 }
 
 // Chunker splits content into chunks for processing
@@ -82,11 +88,11 @@ type Chunker interface {
 
 // Chunk represents a content chunk
 type Chunk struct {
-	ID        string `json:"id"`
-	Content   string `json:"content"`
-	StartPos  int    `json:"start_pos"`
-	EndPos    int    `json:"end_pos"`
-	Index     int    `json:"index"`
+	ID       string `json:"id"`
+	Content  string `json:"content"`
+	StartPos int    `json:"start_pos"`
+	EndPos   int    `json:"end_pos"`
+	Index    int    `json:"index"`
 }
 
 // Embedder generates vector embeddings for text
@@ -151,10 +157,10 @@ type ExtractorConfig struct {
 	SLM SLMConfig `json:"slm"`
 
 	// Thresholds
-	MinContentSize     int     `json:"min_content_size"`     // Min size to trigger extraction
-	RelevanceThreshold float64 `json:"relevance_threshold"`  // Min similarity to keep chunk
-	TopKChunks         int     `json:"top_k_chunks"`         // Max chunks to keep
-	TopKRatio          float64 `json:"top_k_ratio"`          // Ratio of chunks to keep
+	MinContentSize     int     `json:"min_content_size"`    // Min size to trigger extraction
+	RelevanceThreshold float64 `json:"relevance_threshold"` // Min similarity to keep chunk
+	TopKChunks         int     `json:"top_k_chunks"`        // Max chunks to keep
+	TopKRatio          float64 `json:"top_k_ratio"`         // Ratio of chunks to keep
 
 	// Summarization settings
 	SummarizeChunkSize int `json:"summarize_chunk_size"` // Chunk size for summarization (larger than extraction)
@@ -174,8 +180,8 @@ type EmbeddingConfig struct {
 
 // SLMConfig configures the Small Language Model
 type SLMConfig struct {
-	URL       string        `json:"url"`       // Ollama URL
-	Model     string        `json:"model"`     // e.g., "phi3.5"
+	URL       string        `json:"url"`   // Ollama URL
+	Model     string        `json:"model"` // e.g., "phi3.5"
 	Timeout   time.Duration `json:"timeout"`
 	MaxTokens int           `json:"max_tokens"`
 }

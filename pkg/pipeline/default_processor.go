@@ -142,6 +142,9 @@ func (p *defaultProcessor) Process(ctx context.Context, req ProcessRequest) (*Pr
 			result.ExtractedContent = extractResult.Content
 			result.Metrics.ExtractedSize = extractResult.ExtractedSize
 			result.Metrics.ExtractionRatio = extractResult.ReductionRatio
+			result.Metrics.ChunksProcessed = extractResult.ChunksProcessed
+			result.Metrics.ChunksRetained = extractResult.ChunksRetained
+			result.Metrics.SizeAfterRelevanceBytes = extractResult.SizeAfterRelevance
 		}
 		// On extraction error, we scan original content (graceful degradation)
 		result.Metrics.ExtractionDuration = time.Since(extractStart)

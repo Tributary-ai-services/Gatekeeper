@@ -131,6 +131,11 @@ func (e *defaultExtractor) Extract(ctx context.Context, req ExtractRequest) (*Ex
 
 	result.ChunksRetained = len(retainedChunks)
 
+	// Per-step capture: size after relevance filtering, before any SLM
+	// step. Computed once and reused by the no-SLM concat path below.
+	relevanceConcat := concatenateChunks(retainedChunks)
+	result.SizeAfterRelevance = len(relevanceConcat)
+
 	// If SLM is enabled, feed retained chunks through SLM for further extraction
 	if e.slmClient != nil && e.config.EnableSLM {
 		slmResult, slmErr := e.extractWithSLM(ctx, req.Query, retainedChunks, req.MaxOutput)
@@ -145,9 +150,9 @@ func (e *defaultExtractor) Extract(ctx context.Context, req ExtractRequest) (*Ex
 		// SLM failed — fall through to concatenation
 	}
 
-	// Concatenate retained chunks (no SLM or SLM failed)
-	concatenated := concatenateChunks(retainedChunks)
-	result.Content = []byte(concatenated)
+	// Concatenate retained chunks (no SLM or SLM failed). Reuse the
+	// relevance-step concat computed above.
+	result.Content = []byte(relevanceConcat)
 	result.ExtractedSize = len(result.Content)
 	result.ReductionRatio = 1 - float64(result.ExtractedSize)/float64(originalSize)
 	result.ProcessingTime = time.Since(start)

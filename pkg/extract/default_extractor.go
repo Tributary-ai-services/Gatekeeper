@@ -103,8 +103,9 @@ func (e *defaultExtractor) Extract(ctx context.Context, req ExtractRequest) (*Ex
 		return result, nil
 	}
 
-	// Try embedding-based scoring
-	retainedChunks, embeddingTime, err := e.scoreAndFilterChunks(ctx, req.Query, chunks)
+	// Try embedding-based scoring (per-request relevance overrides honored)
+	retainedChunks, embeddingTime, err := e.scoreAndFilterChunks(ctx, req.Query, chunks,
+		e.effectiveRelevance(req.RelevanceThreshold, req.TopKChunks, req.TopKRatio))
 	result.EmbeddingTime = embeddingTime
 
 	if err != nil {
@@ -284,8 +285,8 @@ func (e *defaultExtractor) summarizeEmbed(ctx context.Context, req SummarizeRequ
 		ChunksProcessed: len(chunks),
 	}
 
-	// Score and filter chunks by relevance
-	retainedChunks, embeddingTime, err := e.scoreAndFilterChunks(ctx, req.Query, chunks)
+	// Score and filter chunks by relevance (summarize path uses config defaults)
+	retainedChunks, embeddingTime, err := e.scoreAndFilterChunks(ctx, req.Query, chunks, e.effectiveRelevance(0, 0, 0))
 	result.EmbeddingTime = embeddingTime
 	if err != nil {
 		return nil, fmt.Errorf("embedding failed: %w", err)
@@ -319,9 +320,38 @@ func (e *defaultExtractor) Close() error {
 	return nil
 }
 
+// relevanceParams is the effective threshold/top-K for one extract call,
+// resolved from per-request overrides with config fallback.
+type relevanceParams struct {
+	threshold float64
+	topK      int
+	ratio     float64
+}
+
+// effectiveRelevance applies any non-zero per-request override on top of the
+// extractor's configured defaults. Zero means "use the default".
+func (e *defaultExtractor) effectiveRelevance(reqThreshold float64, reqTopK int, reqRatio float64) relevanceParams {
+	p := relevanceParams{
+		threshold: e.config.RelevanceThreshold,
+		topK:      e.config.TopKChunks,
+		ratio:     e.config.TopKRatio,
+	}
+	if reqThreshold > 0 {
+		p.threshold = reqThreshold
+	}
+	if reqTopK > 0 {
+		p.topK = reqTopK
+	}
+	if reqRatio > 0 {
+		p.ratio = reqRatio
+	}
+	return p
+}
+
 // scoreAndFilterChunks embeds the query and all chunks, scores by cosine similarity,
-// and returns the top-K chunks above the relevance threshold.
-func (e *defaultExtractor) scoreAndFilterChunks(ctx context.Context, query string, chunks []Chunk) ([]Chunk, time.Duration, error) {
+// and returns the top-K chunks above the relevance threshold. The threshold/top-K
+// come from rp (per-call effective params), not directly from config.
+func (e *defaultExtractor) scoreAndFilterChunks(ctx context.Context, query string, chunks []Chunk, rp relevanceParams) ([]Chunk, time.Duration, error) {
 	if e.embedder == nil {
 		return nil, 0, fmt.Errorf("no embedder configured")
 	}
@@ -351,7 +381,7 @@ func (e *defaultExtractor) scoreAndFilterChunks(ctx context.Context, query strin
 	scored := make([]scoredChunk, 0, len(chunks))
 	for i, chunk := range chunks {
 		sim := e.embedder.Similarity(queryEmbedding, embeddings[i+1])
-		if sim >= e.config.RelevanceThreshold {
+		if sim >= rp.threshold {
 			scored = append(scored, scoredChunk{chunk: chunk, similarity: sim})
 		}
 	}
@@ -362,9 +392,9 @@ func (e *defaultExtractor) scoreAndFilterChunks(ctx context.Context, query strin
 	})
 
 	// Determine how many to keep
-	maxChunks := e.config.TopKChunks
-	if e.config.TopKRatio > 0 {
-		ratioMax := int(float64(len(chunks)) * e.config.TopKRatio)
+	maxChunks := rp.topK
+	if rp.ratio > 0 {
+		ratioMax := int(float64(len(chunks)) * rp.ratio)
 		if ratioMax < maxChunks {
 			maxChunks = ratioMax
 		}

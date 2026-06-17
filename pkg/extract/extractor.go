@@ -56,6 +56,14 @@ type ExtractRequest struct {
 	Query       string `json:"query"`        // What the user asked (for relevance)
 	ContentType string `json:"content_type"` // "text", "json", "markdown"
 	MaxOutput   int    `json:"max_output"`   // Max output size in bytes
+
+	// Optional per-call relevance overrides (0 = use the extractor's config
+	// default). Lets a caller honor per-policy tuning (e.g. an AIQG policy
+	// bundle's reduction.steps.relevance) without rebuilding the extractor.
+	// Plan #7 Phase 2.
+	RelevanceThreshold float64 `json:"relevance_threshold,omitempty"`
+	TopKChunks         int     `json:"top_k_chunks,omitempty"`
+	TopKRatio          float64 `json:"top_k_ratio,omitempty"`
 }
 
 // ExtractResult contains extraction output

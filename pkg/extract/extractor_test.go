@@ -382,6 +382,53 @@ func TestExtractor_TopKFiltering(t *testing.T) {
 	}
 }
 
+// TestExtractor_PerRequestRelevanceOverride verifies a per-call TopKChunks
+// override on ExtractRequest takes precedence over the extractor's config.
+func TestExtractor_PerRequestRelevanceOverride(t *testing.T) {
+	config := DefaultExtractorConfig()
+	config.MinContentSize = 10
+	config.ChunkSize = 20
+	config.ChunkOverlap = 0
+	config.RelevanceThreshold = 0.1
+	config.TopKChunks = 100 // permissive default — would keep everything
+	config.TopKRatio = 1.0
+	config.EnableEmbedding = true
+	config.EnableSLM = false
+
+	embedder := &mockEmbedder{
+		embedBatchFunc: func(ctx context.Context, texts []string) ([][]float64, error) {
+			result := make([][]float64, len(texts))
+			result[0] = []float64{1, 0, 0} // query
+			for i := 1; i < len(texts); i++ {
+				// All chunks pass the 0.1 threshold so only TopK constrains.
+				result[i] = []float64{0.9 - float64(i)*0.05, 0.1, 0}
+			}
+			return result, nil
+		},
+		dimensions: 3,
+	}
+	extractor := NewExtractorWithComponents(NewChunker(config.ChunkSize), embedder, nil, config)
+
+	content := make([]byte, 80)
+	for i := range content {
+		content[i] = byte('a' + i%26)
+	}
+
+	// With the config default (TopKChunks=100) all chunks would be kept;
+	// the per-request override of 1 must cap retention at 1.
+	result, err := extractor.Extract(context.Background(), ExtractRequest{
+		Content:    content,
+		Query:      "find relevant content",
+		TopKChunks: 1,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.ChunksRetained != 1 {
+		t.Errorf("per-request TopKChunks=1 override not honored: retained %d, want 1", result.ChunksRetained)
+	}
+}
+
 func TestExtractor_EmbeddingError_FallbackToSLM(t *testing.T) {
 	config := DefaultExtractorConfig()
 	config.MinContentSize = 10

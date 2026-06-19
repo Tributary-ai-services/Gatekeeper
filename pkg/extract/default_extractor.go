@@ -27,7 +27,14 @@ func NewExtractor(config *ExtractorConfig) (Extractor, error) {
 
 	var embedder Embedder
 	if config.EnableEmbedding {
-		embedder = NewEmbedder(config.Embedding, config.SLM.URL)
+		// The embedder has its own base URL so the SLM step can point at a
+		// cloud provider while embeddings stay on Ollama. Back-compat: fall
+		// back to SLM.URL when Embedding.URL isn't set.
+		embURL := config.Embedding.URL
+		if embURL == "" {
+			embURL = config.SLM.URL
+		}
+		embedder = NewEmbedder(config.Embedding, embURL)
 	}
 
 	var slmClient SLMClient

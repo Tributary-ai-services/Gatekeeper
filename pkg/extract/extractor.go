@@ -181,6 +181,7 @@ type ExtractorConfig struct {
 // EmbeddingConfig configures the embedding model
 type EmbeddingConfig struct {
 	Model      string `json:"model"`      // e.g., "all-MiniLM-L6-v2"
+	URL        string `json:"url"`        // embedder base URL (Ollama); falls back to SLM.URL when empty
 	Dimensions int    `json:"dimensions"` // e.g., 384
 	BatchSize  int    `json:"batch_size"`
 	Normalize  bool   `json:"normalize"`
@@ -188,11 +189,24 @@ type EmbeddingConfig struct {
 
 // SLMConfig configures the Small Language Model
 type SLMConfig struct {
-	URL       string        `json:"url"`   // Ollama URL
-	Model     string        `json:"model"` // e.g., "phi3.5"
+	// Provider selects the backend: "ollama" (default, local /api/generate),
+	// "openai" (or any OpenAI-compatible /v1/chat/completions), or "anthropic"
+	// (/v1/messages). The cloud providers let the SLM rewrite step run without
+	// a local GPU (Plan #7 — unblock SLM compression on CPU-only nodes).
+	Provider  string        `json:"provider"`
+	URL       string        `json:"url"`     // base URL; provider default used when empty
+	Model     string        `json:"model"`   // e.g. "phi3.5", "gpt-4o-mini", "claude-haiku-4-5-20251001"
+	APIKey    string        `json:"api_key"` // bearer / x-api-key for cloud providers
 	Timeout   time.Duration `json:"timeout"`
 	MaxTokens int           `json:"max_tokens"`
 }
+
+// SLM provider identifiers.
+const (
+	SLMProviderOllama    = "ollama"
+	SLMProviderOpenAI    = "openai"
+	SLMProviderAnthropic = "anthropic"
+)
 
 // DefaultExtractorConfig returns default extractor configuration
 func DefaultExtractorConfig() *ExtractorConfig {

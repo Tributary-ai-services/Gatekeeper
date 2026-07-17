@@ -4,7 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-This is **Gatekeeper** (also known as `tas-contentintel`) - a unified content scanning, extraction, and compliance library for the TAS platform. This library provides high-performance content analysis capabilities shared across TAS services including TAS LLM Router, TAS MCP Proxy, Audimodal, and Aether-BE.
+This is **Gatekeeper** (also known as `tas-contentintel`) - a content scanning, extraction, and compliance library for the TAS platform, plus a standalone service that wraps it.
+
+**Where it is meant to run — and where it actually does.** Gatekeeper is enforced at the platform's three **trust boundaries** — the points where content crosses from untrusted to trusted, or from trusted out to a third party. Interior services do not scan; they are meant to trust an attestation minted at the boundary. See [Deployment Status](#deployment-status) for what is wired today vs. intended — the two differ, and this section used to overstate the difference.
+
+| Boundary | Service | Status (2026-07-17) |
+|---|---|---|
+| **LLM proxy** | `tas-llm-router` | ✅ scans (links `pkg/scan`). ❌ does not redact yet (tas-llm-router#102) |
+| **MCP proxy** | `tas-mcp` | ✅ scans federated tool results, **log-only** (tas-mcp#27, live). Previously imported only `pkg/extract` (reduction), not scanning |
+| **Ingest** | `audimodal` | ⏳ own `pkg/dlp` (5 matchers, no secrets); migration to Gatekeeper in progress (audimodal#26) |
+| **Standalone service** | this repo | ✅ Hyperscan engine, deployed |
+
+Interior services (`aether-be`, `tas-agent-builder`, `tas-workflow-builder`, `tas-mcp-servers`) are **not** boundaries and should **not** link Gatekeeper — they trust the upstream attestation. `aether-be` is out by design, not pending.
 
 **Design Document**: See `parital-design.md` for the complete architecture specification.
 
@@ -13,8 +24,8 @@ This is **Gatekeeper** (also known as `tas-contentintel`) - a unified content sc
 - Compliance framework scanning (HIPAA, GDPR, SOX, PCI-DSS)
 - Injection detection (SQL injection, prompt injection)
 - Content extraction using embedding + SLM for large context optimization
-- PII tokenization via Databunker integration
-- Scan attestation to prevent duplicate scanning across services
+- PII tokenization via Databunker integration — ⚠️ **client complete, but Databunker is not deployed**, so this path is inert everywhere today (`EnableTokenization` defaults false; no consumer wires a tokenizer)
+- Scan attestation to prevent duplicate scanning across services — ⚠️ **not minting yet**: consumers set `HonorAttestations: true` but `EnableAttestation` is false, so nothing signs one and the honor path has nothing to honor (the `>80% skip` target is unreachable until this flips; blocked on a signing-key source, i.e. Databunker)
 - Real-time findings streaming to Kafka
 - Rule-based action engine (block, redact, alert, quarantine)
 
@@ -31,13 +42,19 @@ This is **Gatekeeper** (also known as `tas-contentintel`) - a unified content sc
 │  └─────────────┘  └─────────────┘  └─────────────┘  └────────────┘ │
 └──────────────────────────┬──────────────────────────────────────────┘
                            │
-         ┌─────────────────┼─────────────────┐
-         │                 │                 │
-         ▼                 ▼                 ▼
-   ┌───────────┐    ┌───────────┐    ┌───────────────┐
-   │ LLM Router│    │ MCP Proxy │    │ Standalone    │
-   │ (linked)  │    │ (linked)  │    │ Service (API) │
-   └───────────┘    └───────────┘    └───────────────┘
+      ┌──────────────┬────┴─────────┬──────────────┐
+      │  BOUNDARIES  │              │              │
+      ▼              ▼              ▼              ▼
+┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────────┐
+│ LLM proxy │ │ MCP proxy │ │  Ingest   │ │  Standalone   │
+│(tas-llm-  │ │ (tas-mcp) │ │(audimodal)│ │  Service      │
+│ router)   │ │           │ │           │ │  (this repo)  │
+│ scan ✅   │ │ scan ✅   │ │ migrating │ │ Hyperscan ✅  │
+│ redact ❌ │ │ log-only  │ │  (own DLP)│ │  deployed     │
+└───────────┘ └───────────┘ └───────────┘ └───────────────┘
+
+Interior services (aether-be, agent-builder, …) do NOT link Gatekeeper;
+they trust the attestation minted at a boundary (attestation not yet live).
 ```
 
 ## Technology Stack
@@ -328,9 +345,23 @@ X-TAS-Scan-Status: clean | violations | tokenized | skipped
 X-TAS-Scan-Request-ID: <correlation ID>
 ```
 
+## Deployment Status
+
+The current wiring differs from the illustrative examples below — read this first.
+
+| Capability | Intended | Actually live (2026-07-17) |
+|---|---|---|
+| LLM-proxy scan (`tas-llm-router`) | scan + remediate | **scans + blocks; never redacts** — extracts message text to scan, never rewrites `req.Messages`. Redaction wiring tracked in tas-llm-router#102 (G1) |
+| MCP-proxy scan (`tas-mcp`) | scan tool results | **live, log-only** (tas-mcp#27, G2). Runs on every external `tools/call`, independent of reduction. Redaction behind a default-off flag |
+| Ingest scan (`audimodal`) | Gatekeeper DLP | **own `pkg/dlp`** (5 matchers, no secrets). Gatekeeper migration in progress (audimodal#26, G6/G7) |
+| Tokenization (Databunker) | tokenize + detokenize | **inert** — Databunker not deployed; `EnableTokenization` false everywhere |
+| Attestation | mint at boundary, honor inside | **not minting** — `EnableAttestation` false; nothing to honor. Blocked on a signing-key source (Databunker) |
+
+The `Process()`-based snippets below are the **library's intended API shape**, not a description of any current call site. The router uses `pkg/pipeline` + `pkg/scan` directly; tas-mcp uses `pkg/scan` behind an `internal/scanning` adapter. Treat these as illustration until a call site matches them.
+
 ## Integration with TAS Services
 
-### LLM Router Integration
+### LLM Router Integration (illustrative)
 
 ```go
 result, err := r.contentIntel.Process(ctx, contentintel.ProcessRequest{
@@ -344,7 +375,7 @@ result, err := r.contentIntel.Process(ctx, contentintel.ProcessRequest{
 })
 ```
 
-### MCP Proxy Integration
+### MCP Proxy Integration (illustrative)
 
 ```go
 result, err := p.contentIntel.Process(ctx, contentintel.ProcessRequest{
@@ -494,20 +525,31 @@ OLLAMA_URL: "http://tas-ollama-shared:11434"
 
 See `../aether-shared/services-and-ports.md` for complete port allocation.
 
-## Migration from Existing Code
+## Origin & the audimodal migration
 
-When implementing, extract patterns from:
+Gatekeeper was **extracted from audimodal's `pkg/dlp`** — audimodal is the parent,
+not a future consumer. That extraction went one way and Gatekeeper has since drifted
+well past it: **21 PII matchers vs audimodal's 5, plus injection detection and six
+more compliance frameworks** — most importantly, Gatekeeper detects cloud secrets
+(AWS/GCP/Azure keys, private keys, connection strings) that audimodal's DLP cannot.
 
-### audimodal
-- `internal/dlp/` or `pkg/dlp/` - DLP pipeline implementation
-- `pkg/compliance/` - Compliance scanning
-- PII patterns for 15+ types
+So the audimodal work is a **migration back onto Gatekeeper** (audimodal#26, G6/G7),
+done adapter-first: run both engines in shadow, diff findings, retire `pkg/dlp` only
+once the false-positive delta of 5→21 matchers is understood. It is **not** a
+"still to implement" item — audimodal has working DLP today.
 
-### aether-be
-- `internal/middleware/` - Compliance middleware
+Historical reference points that seeded Gatekeeper:
+
+### audimodal (the origin)
+- `pkg/dlp/` - the DLP pipeline Gatekeeper's scanner was extracted from
+- `pkg/dlp/patterns/`, `pkg/dlp/compliance/` - the original matchers + framework rules
 
 ### tas-llm-router
 - `llm-router-waf-design.md` - WAF design document
+
+(Note: `aether-be` is **not** a Gatekeeper integration target — it is an interior
+service, not a boundary. Any prior mention of aether-be compliance middleware as a
+migration source is incidental, not a plan to link Gatekeeper there.)
 - `internal/server/` - Request validation
 
 ### tas-mcp

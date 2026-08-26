@@ -1,0 +1,19 @@
+# Maps code paths to the documents that describe them.
+# Read by .claude/skills/doc-factory/scripts/detect_stale_docs.py.
+#
+# Watches must end in /** to match files — a bare directory path matches
+# nothing and leaves the document silently unwatched. Verified against the
+# detector's dead-watch guard, which reports any pattern matching no tracked file.
+#
+# READMEs watch broadly on purpose: a README's status section goes stale
+# without any commit touching the README itself.
+
+documents:
+  - path: README.md
+    doc_type: readme
+    owner: "@jscharber"
+    watches:
+      - "cmd/**"
+      - "pkg/**"
+      - "middleware/**"
+      - "go.mod"
